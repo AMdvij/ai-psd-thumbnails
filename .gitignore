@@ -1,3 +1,6 @@
 /target
 *.png
 out-*.*
+/installer/payload/
+*.msi
+*.wixpdb

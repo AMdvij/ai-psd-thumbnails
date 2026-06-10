@@ -1,0 +1,298 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Registry declarations for thumb-viewer shell extension.
+
+  CLSID-A (thumbnail provider):  {90E3822E-5F70-40BF-884E-77544797AD41}
+  CLSID-B (preview handler):     {2CFC1F9E-0B23-48C3-AE46-29025209D0D4}
+  Thumbnail ShellEx key GUID:    {e357fccd-a995-4576-b01f-234630154e96}
+  Preview ShellEx key GUID:      {8895b1c6-b41f-4c1c-a562-0d564250836f}
+  AppID surrogate (OS-owned):    {6d2b5079-2f0b-48dd-ab7f-97cec514d30b}
+
+  Rules enforced here:
+  - Register ONLY under HKCR\SystemFileAssociations\.<ext>\... (association-neutral).
+    NEVER touch HKCR\.<ext> default value (ProgID/OpenWith).
+  - ThreadingModel=Apartment for BOTH CLSIDs.
+  - AppID value set ON CLSID-B key only — the shared OS-owned
+    HKCR\AppID\{6d2b5079-...} key is NEVER authored or deleted here.
+    Windows pre-registers it with DllSurrogate=prevhost.exe; creating or
+    uninstall-deleting it would break every preview handler machine-wide.
+  - Per-machine (HKLM) install: WiX maps Root="HKCR" to HKLM\SOFTWARE\Classes
+    for per-machine packages, providing clean rollback on uninstall.
+  - Uninstall removes ONLY the components listed here (our own keys).
+    The shared AppID key and all ProgID associations are left untouched.
+  - Formats: .ai .psd .psb .eps .svg (5 extensions, 2 handlers each = 10 rows).
+  - PreviewHandlers HKLM named value: required for the preview pane to enumerate
+    our handler in the "preview handlers" list.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <!-- ── CLSID-A InprocServer32 (thumbnail provider) ──────────────────────────
+
+       HKCR\CLSID\{90E3822E-5F70-40BF-884E-77544797AD41}\InprocServer32
+         (default)      = [INSTALLFOLDER]thumb_viewer.dll
+         ThreadingModel = Apartment
+  -->
+  <Fragment>
+    <Component Id="CMP_RegClsidA_InprocServer32"
+               Directory="INSTALLFOLDER"
+               Guid="A1B2C3D4-E5F6-7890-ABCD-EF1234567890">
+      <RegistryValue
+          Root="HKCR"
+          Key="CLSID\{90E3822E-5F70-40BF-884E-77544797AD41}\InprocServer32"
+          Value="[INSTALLFOLDER]thumb_viewer.dll"
+          Type="string"
+          KeyPath="yes" />
+      <RegistryValue
+          Root="HKCR"
+          Key="CLSID\{90E3822E-5F70-40BF-884E-77544797AD41}\InprocServer32"
+          Name="ThreadingModel"
+          Value="Apartment"
+          Type="string" />
+    </Component>
+  </Fragment>
+
+  <!-- ── CLSID-B InprocServer32 (preview handler) ─────────────────────────────
+
+       HKCR\CLSID\{2CFC1F9E-0B23-48C3-AE46-29025209D0D4}\InprocServer32
+         (default)      = [INSTALLFOLDER]thumb_viewer.dll
+         ThreadingModel = Apartment
+  -->
+  <Fragment>
+    <Component Id="CMP_RegClsidB_InprocServer32"
+               Directory="INSTALLFOLDER"
+               Guid="B2C3D4E5-F6A7-8901-BCDE-F12345678901">
+      <RegistryValue
+          Root="HKCR"
+          Key="CLSID\{2CFC1F9E-0B23-48C3-AE46-29025209D0D4}\InprocServer32"
+          Value="[INSTALLFOLDER]thumb_viewer.dll"
+          Type="string"
+          KeyPath="yes" />
+      <RegistryValue
+          Root="HKCR"
+          Key="CLSID\{2CFC1F9E-0B23-48C3-AE46-29025209D0D4}\InprocServer32"
+          Name="ThreadingModel"
+          Value="Apartment"
+          Type="string" />
+    </Component>
+  </Fragment>
+
+  <!-- ── CLSID-B AppID value (on the CLSID-B key, NOT the shared AppID key) ───
+
+       HKCR\CLSID\{2CFC1F9E-0B23-48C3-AE46-29025209D0D4}
+         AppID = {6d2b5079-2f0b-48dd-ab7f-97cec514d30b}
+
+       This sets the AppID *named value* on our CLSID key so that COM routes
+       the preview handler through prevhost.exe (which already has
+       DllSurrogate= set in the OS-owned HKCR\AppID\{6d2b5079-...} key).
+       We never touch the AppID key itself.
+  -->
+  <Fragment>
+    <Component Id="CMP_RegClsidB_AppIdValue"
+               Directory="INSTALLFOLDER"
+               Guid="C3D4E5F6-A7B8-9012-CDEF-123456789012">
+      <RegistryValue
+          Root="HKCR"
+          Key="CLSID\{2CFC1F9E-0B23-48C3-AE46-29025209D0D4}"
+          Name="AppID"
+          Value="{6d2b5079-2f0b-48dd-ab7f-97cec514d30b}"
+          Type="string"
+          KeyPath="yes" />
+    </Component>
+  </Fragment>
+
+  <!-- ── CLSID-B display name ──────────────────────────────────────────────────
+
+       HKCR\CLSID\{2CFC1F9E-0B23-48C3-AE46-29025209D0D4}
+         (default) = "thumb-viewer Preview"
+  -->
+  <Fragment>
+    <Component Id="CMP_RegClsidB_DisplayName"
+               Directory="INSTALLFOLDER"
+               Guid="D4E5F6A7-B8C9-0123-DEF0-234567890123">
+      <RegistryValue
+          Root="HKCR"
+          Key="CLSID\{2CFC1F9E-0B23-48C3-AE46-29025209D0D4}"
+          Value="thumb-viewer Preview"
+          Type="string"
+          KeyPath="yes" />
+    </Component>
+  </Fragment>
+
+  <!-- ── Per-extension ShellEx registrations ──────────────────────────────────
+       5 extensions × 2 handlers = 10 components.
+       Thumbnail handler uses key: {e357fccd-a995-4576-b01f-234630154e96}
+       Preview handler uses key:   {8895b1c6-b41f-4c1c-a562-0d564250836f}
+
+       Key structure (thumbnail — uppercase ShellEx):
+         HKCR\SystemFileAssociations\.<ext>\ShellEx\{e357fccd-...} = {CLSID-A}
+
+       Key structure (preview — lowercase shellex, matching MS registration mechanics):
+         HKCR\SystemFileAssociations\.<ext>\shellex\{8895b1c6-...} = {CLSID-B}
+
+       NEVER author HKCR\.<ext>\ShellEx or HKCR\.<ext> default — those paths are
+       where SageThumbs wrote and broke the .ai association.
+  -->
+
+  <!-- .ai thumbnail -->
+  <Fragment>
+    <Component Id="CMP_RegShellEx_Ai_Thumb"
+               Directory="INSTALLFOLDER"
+               Guid="E5F6A7B8-C9D0-1234-EF01-345678901234">
+      <RegistryValue
+          Root="HKCR"
+          Key="SystemFileAssociations\.ai\ShellEx\{e357fccd-a995-4576-b01f-234630154e96}"
+          Value="{90E3822E-5F70-40BF-884E-77544797AD41}"
+          Type="string"
+          KeyPath="yes" />
+    </Component>
+  </Fragment>
+
+  <!-- .ai preview -->
+  <Fragment>
+    <Component Id="CMP_RegShellEx_Ai_Preview"
+               Directory="INSTALLFOLDER"
+               Guid="F6A7B8C9-D0E1-2345-F012-456789012345">
+      <RegistryValue
+          Root="HKCR"
+          Key="SystemFileAssociations\.ai\shellex\{8895b1c6-b41f-4c1c-a562-0d564250836f}"
+          Value="{2CFC1F9E-0B23-48C3-AE46-29025209D0D4}"
+          Type="string"
+          KeyPath="yes" />
+    </Component>
+  </Fragment>
+
+  <!-- .psd thumbnail -->
+  <Fragment>
+    <Component Id="CMP_RegShellEx_Psd_Thumb"
+               Directory="INSTALLFOLDER"
+               Guid="A7B8C9D0-E1F2-3456-0123-567890123456">
+      <RegistryValue
+          Root="HKCR"
+          Key="SystemFileAssociations\.psd\ShellEx\{e357fccd-a995-4576-b01f-234630154e96}"
+          Value="{90E3822E-5F70-40BF-884E-77544797AD41}"
+          Type="string"
+          KeyPath="yes" />
+    </Component>
+  </Fragment>
+
+  <!-- .psd preview -->
+  <Fragment>
+    <Component Id="CMP_RegShellEx_Psd_Preview"
+               Directory="INSTALLFOLDER"
+               Guid="B8C9D0E1-F2A3-4567-1234-678901234567">
+      <RegistryValue
+          Root="HKCR"
+          Key="SystemFileAssociations\.psd\shellex\{8895b1c6-b41f-4c1c-a562-0d564250836f}"
+          Value="{2CFC1F9E-0B23-48C3-AE46-29025209D0D4}"
+          Type="string"
+          KeyPath="yes" />
+    </Component>
+  </Fragment>
+
+  <!-- .psb thumbnail -->
+  <Fragment>
+    <Component Id="CMP_RegShellEx_Psb_Thumb"
+               Directory="INSTALLFOLDER"
+               Guid="C9D0E1F2-A3B4-5678-2345-789012345678">
+      <RegistryValue
+          Root="HKCR"
+          Key="SystemFileAssociations\.psb\ShellEx\{e357fccd-a995-4576-b01f-234630154e96}"
+          Value="{90E3822E-5F70-40BF-884E-77544797AD41}"
+          Type="string"
+          KeyPath="yes" />
+    </Component>
+  </Fragment>
+
+  <!-- .psb preview -->
+  <Fragment>
+    <Component Id="CMP_RegShellEx_Psb_Preview"
+               Directory="INSTALLFOLDER"
+               Guid="D0E1F2A3-B4C5-6789-3456-890123456789">
+      <RegistryValue
+          Root="HKCR"
+          Key="SystemFileAssociations\.psb\shellex\{8895b1c6-b41f-4c1c-a562-0d564250836f}"
+          Value="{2CFC1F9E-0B23-48C3-AE46-29025209D0D4}"
+          Type="string"
+          KeyPath="yes" />
+    </Component>
+  </Fragment>
+
+  <!-- .eps thumbnail -->
+  <Fragment>
+    <Component Id="CMP_RegShellEx_Eps_Thumb"
+               Directory="INSTALLFOLDER"
+               Guid="E1F2A3B4-C5D6-7890-4567-901234567890">
+      <RegistryValue
+          Root="HKCR"
+          Key="SystemFileAssociations\.eps\ShellEx\{e357fccd-a995-4576-b01f-234630154e96}"
+          Value="{90E3822E-5F70-40BF-884E-77544797AD41}"
+          Type="string"
+          KeyPath="yes" />
+    </Component>
+  </Fragment>
+
+  <!-- .eps preview -->
+  <Fragment>
+    <Component Id="CMP_RegShellEx_Eps_Preview"
+               Directory="INSTALLFOLDER"
+               Guid="F2A3B4C5-D6E7-8901-5678-012345678901">
+      <RegistryValue
+          Root="HKCR"
+          Key="SystemFileAssociations\.eps\shellex\{8895b1c6-b41f-4c1c-a562-0d564250836f}"
+          Value="{2CFC1F9E-0B23-48C3-AE46-29025209D0D4}"
+          Type="string"
+          KeyPath="yes" />
+    </Component>
+  </Fragment>
+
+  <!-- .svg thumbnail -->
+  <Fragment>
+    <Component Id="CMP_RegShellEx_Svg_Thumb"
+               Directory="INSTALLFOLDER"
+               Guid="A3B4C5D6-E7F8-9012-6789-123456789012">
+      <RegistryValue
+          Root="HKCR"
+          Key="SystemFileAssociations\.svg\ShellEx\{e357fccd-a995-4576-b01f-234630154e96}"
+          Value="{90E3822E-5F70-40BF-884E-77544797AD41}"
+          Type="string"
+          KeyPath="yes" />
+    </Component>
+  </Fragment>
+
+  <!-- .svg preview -->
+  <Fragment>
+    <Component Id="CMP_RegShellEx_Svg_Preview"
+               Directory="INSTALLFOLDER"
+               Guid="B4C5D6E7-F8A9-0123-7890-234567890123">
+      <RegistryValue
+          Root="HKCR"
+          Key="SystemFileAssociations\.svg\shellex\{8895b1c6-b41f-4c1c-a562-0d564250836f}"
+          Value="{2CFC1F9E-0B23-48C3-AE46-29025209D0D4}"
+          Type="string"
+          KeyPath="yes" />
+    </Component>
+  </Fragment>
+
+  <!-- ── PreviewHandlers registration ─────────────────────────────────────────
+
+       HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\PreviewHandlers
+         {2CFC1F9E-0B23-48C3-AE46-29025209D0D4} = "thumb-viewer Preview"
+
+       This named value makes the preview handler discoverable by the shell's
+       preview handler enumeration logic.
+  -->
+  <Fragment>
+    <Component Id="CMP_RegPreviewHandlers"
+               Directory="INSTALLFOLDER"
+               Guid="C5D6E7F8-A9B0-1234-8901-345678901234">
+      <RegistryValue
+          Root="HKLM"
+          Key="SOFTWARE\Microsoft\Windows\CurrentVersion\PreviewHandlers"
+          Name="{2CFC1F9E-0B23-48C3-AE46-29025209D0D4}"
+          Value="thumb-viewer Preview"
+          Type="string"
+          KeyPath="yes" />
+    </Component>
+  </Fragment>
+
+</Wix>

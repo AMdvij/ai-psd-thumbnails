@@ -1,0 +1,25 @@
+[package]
+name = "installer-ca"
+version = "0.1.0"
+edition = "2021"
+# Custom action executable for the thumb-viewer MSI.
+# Two verbs dispatched by argv[1]:
+#   restore-ai-progid    — deferred, no-impersonate: read HKCR\.ai default;
+#                          if == "SageThumbsImage.ai" restore to "Adobe.Illustrator.28"
+#   notify-assoc-changed — commit, impersonated: SHChangeNotify(SHCNE_ASSOCCHANGED)
+# Built as a normal binary (not cdylib); embedded into the MSI as a Binary element
+# and invoked by WiX CustomAction BinaryRef + DllEntry (which for exe CAs maps to
+# the command-line argument passed to the process).
+
+[[bin]]
+name = "installer-ca"
+path = "src/main.rs"
+
+[dependencies]
+[dependencies.windows]
+version = "0.62"
+features = [
+    "Win32_Foundation",
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
+]
