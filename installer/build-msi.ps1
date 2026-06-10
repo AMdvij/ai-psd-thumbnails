@@ -9,7 +9,7 @@
     3. Runs `wix build` to produce thumb-viewer-<version>.msi.
 
 .PARAMETER Version
-    Package version string (default: 0.1.3).  Must match the Version attribute in
+    Package version string (default: 0.1.4).  Must match the Version attribute in
     thumb-viewer.wxs.
 
 .PARAMETER OutDir
@@ -20,7 +20,7 @@
     .\installer\build-msi.ps1 -Version 0.2.0 -OutDir dist\
 #>
 param(
-    [string]$Version = "0.1.3",
+    [string]$Version = "0.1.4",
     [string]$OutDir  = $PSScriptRoot
 )
 
@@ -109,5 +109,6 @@ Write-Host ""
 Write-Host "NOTE: Do not install this MSI during automated builds -- installation"
 Write-Host "      requires elevation and interactive registry verification."
 Write-Host "      See installer\README.md for manual installation test instructions."
+
 
 

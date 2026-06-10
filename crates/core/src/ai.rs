@@ -26,8 +26,9 @@ pub fn decode(data: &[u8], size: u32) -> Result<DecodedImage, CoreError> {
 /// Priority order:
 ///   1. DOS-EPS binary header → TIFF/WMF preview (reuses eps.rs)
 ///   2. `%AI_Thumbnail` ASCII-hex embedded block
-///   3. Ghostscript fallback (feature `gs-fallback`)
-///   4. `NoThumbnail`
+///   3. XMP metadata thumbnail (`xmpGImg` base64 JPEG, Illustrator CS+)
+///   4. Ghostscript fallback (feature `gs-fallback`)
+///   5. `NoThumbnail`
 fn decode_ps_ai(data: &[u8]) -> Result<DecodedImage, CoreError> {
     // 1. DOS-EPS binary header check (some .ai files have one).
     if detect::is_dos_eps(data) {
@@ -43,13 +44,18 @@ fn decode_ps_ai(data: &[u8]) -> Result<DecodedImage, CoreError> {
         return Ok(img);
     }
 
-    // 3. Optional Ghostscript fallback.
+    // 3. XMP packet thumbnail (the only preview most CS-era files carry).
+    if let Some(img) = crate::xmp::extract_xmp_thumbnail(data) {
+        return Ok(img);
+    }
+
+    // 4. Optional Ghostscript fallback.
     #[cfg(feature = "gs-fallback")]
     {
         return crate::gs::render(data);
     }
 
-    // 4. No usable preview found.
+    // 5. No usable preview found.
     Err(CoreError::NoThumbnail)
 }
 
@@ -153,7 +159,8 @@ fn extract_ai_thumbnail(data: &[u8]) -> Result<Option<DecodedImage>, CoreError> 
 }
 
 /// Convert jpeg-decoder pixel output to RGBA (handles RGB and L/greyscale).
-fn jpeg_pixels_to_rgba(pixels: &[u8], fmt: jpeg_decoder::PixelFormat) -> Vec<u8> {
+/// Shared with the XMP thumbnail path (same jpeg-decoder output formats).
+pub(crate) fn jpeg_pixels_to_rgba(pixels: &[u8], fmt: jpeg_decoder::PixelFormat) -> Vec<u8> {
     use jpeg_decoder::PixelFormat;
     match fmt {
         PixelFormat::RGB24 => pixels

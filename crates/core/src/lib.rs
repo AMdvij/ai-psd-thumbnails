@@ -11,6 +11,7 @@ pub mod pdf;
 pub mod psd;
 pub mod render;
 pub mod svg;
+pub(crate) mod xmp;
 
 use thiserror::Error;
 

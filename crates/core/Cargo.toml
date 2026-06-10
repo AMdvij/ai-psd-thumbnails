@@ -36,6 +36,9 @@ tiny-skia = "0.11"
 # JPEG decoding for PSD resource 1036/1033 embedded thumbnails
 jpeg-decoder = "0.3"
 
+# Base64 decoding for XMP-embedded thumbnails (xmpGImg) in EPS-style .ai/.eps
+base64 = "0.22"
+
 # TIFF decoding for DOS-EPS embedded previews.
 # 0.11+ required: 0.9 rejects palette (PhotometricInterpretation=3) TIFFs,
 # which Illustrator/AdobeStock DOS-EPS previews commonly use.

@@ -13,13 +13,29 @@ use crate::{CoreError, DecodedImage};
 // DOS-EPS binary header magic (little-endian u32 = 0xC5D0D3C6).
 const DOS_EPS_MAGIC: [u8; 4] = [0xC5, 0xD0, 0xD3, 0xC6];
 
-/// Decode a preview from a DOS-EPS file.
+/// Decode a preview from an EPS file.
+///
+/// Strategy order:
+///   1. DOS-EPS binary header → TIFF preview.
+///   2. XMP metadata thumbnail (`xmpGImg` base64 JPEG) — the only preview
+///      pure-PostScript EPS files (no binary header) usually carry.
+///
+/// Returns `CoreError::NoThumbnail` when neither yields an image.
+pub fn decode(data: &[u8]) -> Result<DecodedImage, CoreError> {
+    match decode_dos_preview(data) {
+        Err(CoreError::NoThumbnail) => crate::xmp::extract_xmp_thumbnail(data)
+            .ok_or(CoreError::NoThumbnail),
+        other => other,
+    }
+}
+
+/// Decode the TIFF preview referenced by a DOS-EPS binary header.
 ///
 /// Returns `CoreError::NoThumbnail` when:
 ///   - The file lacks a DOS-EPS binary header.
 ///   - The header has no TIFF preview offset/length.
 ///   - The TIFF data is unsupported or corrupt (`tiff` crate returns an error).
-pub fn decode(data: &[u8]) -> Result<DecodedImage, CoreError> {
+fn decode_dos_preview(data: &[u8]) -> Result<DecodedImage, CoreError> {
     if data.len() < 30 || data[..4] != DOS_EPS_MAGIC {
         return Err(CoreError::NoThumbnail);
     }
