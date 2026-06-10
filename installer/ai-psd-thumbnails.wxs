@@ -1,6 +1,6 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <!--
-  thumb-viewer MSI package root.
+  ai-psd-thumbnails MSI package root.
   Platform: x64, per-machine (ALLUSERS=1), WiX v4.
   UpgradeCode: F4B5BFA4-F277-4D9A-B8C2-7EF38B0357B9  (fixed for lifetime of product)
 -->
@@ -8,9 +8,9 @@
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
   <Package
-      Name="thumb-viewer"
-      Manufacturer="thumb-viewer contributors"
-      Version="0.2.0"
+      Name="ai-psd-thumbnails"
+      Manufacturer="ai-psd-thumbnails contributors"
+      Version="0.3.0"
       UpgradeCode="F4B5BFA4-F277-4D9A-B8C2-7EF38B0357B9"
       Language="1033"
       Codepage="1252"
@@ -23,7 +23,7 @@
     -->
     <MajorUpgrade
         Schedule="afterInstallInitialize"
-        DowngradeErrorMessage="A newer version of thumb-viewer is already installed." />
+        DowngradeErrorMessage="A newer version of ai-psd-thumbnails is already installed." />
 
     <MediaTemplate EmbedCab="yes" />
 
@@ -36,7 +36,7 @@
     -->
     <util:RestartResource Path="[INSTALLFOLDER]thumb_viewer.dll" />
 
-    <Feature Id="Complete" Title="thumb-viewer Shell Extension" Level="1">
+    <Feature Id="Complete" Title="ai-psd-thumbnails Shell Extension" Level="1">
       <!-- File components -->
       <ComponentRef Id="CMP_ThumbViewerDll" />
       <ComponentRef Id="CMP_PdfiumDll" />
@@ -140,7 +140,7 @@
 
   <Fragment>
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="thumb-viewer" />
+      <Directory Id="INSTALLFOLDER" Name="ai-psd-thumbnails" />
     </StandardDirectory>
   </Fragment>
 
@@ -150,7 +150,7 @@
     <ComponentGroup Id="CG_Files" Directory="INSTALLFOLDER">
 
       <!-- thumb_viewer.dll â€” COM shell extension; KeyPath anchors the component -->
-      <Component Id="CMP_ThumbViewerDll" Guid="7D3A1C5E-4B82-4F9D-A1C3-8E6F2D0B9A47">
+      <Component Id="CMP_ThumbViewerDll" Guid="FB6052C0-546D-41B4-A418-D075AE72F3F1">
         <File Id="FILE_ThumbViewerDll"
               Name="thumb_viewer.dll"
               Source="payload\thumb_viewer.dll"
@@ -159,7 +159,7 @@
 
       <!-- pdfium.dll â€” must reside in the same directory as thumb_viewer.dll so that
            pdfium_path.rs GetModuleFileNameW sibling-path resolution finds it at runtime -->
-      <Component Id="CMP_PdfiumDll" Guid="2A8F6E0D-1C94-4B7A-9D5E-3F0C1A2B8D46">
+      <Component Id="CMP_PdfiumDll" Guid="C25CEFC2-4B40-4A77-A9EF-D97B8F85C922">
         <File Id="FILE_PdfiumDll"
               Name="pdfium.dll"
               Source="payload\pdfium.dll"
@@ -174,7 +174,7 @@
   <Fragment>
     <Component Id="CMP_InstallMarker"
                Directory="INSTALLFOLDER"
-               Guid="9C4D7E2F-5A18-4B6C-8D3F-0E1A2B3C4D5E">
+               Guid="A22A4C0D-F194-4FA2-BB46-D0447D51A755">
       <!--
         Lightweight presence marker in HKLM.  Gives a stable KeyPath for this component
         and provides a machine-readable install detection point.
@@ -182,10 +182,10 @@
       -->
       <RegistryValue
           Root="HKLM"
-          Key="SOFTWARE\thumb-viewer"
+          Key="SOFTWARE\ai-psd-thumbnails"
           Name="Version"
           Type="string"
-          Value="0.2.0"
+          Value="0.3.0"
           KeyPath="yes" />
     </Component>
   </Fragment>

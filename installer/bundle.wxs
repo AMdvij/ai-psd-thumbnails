@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  thumb-viewer bootstrapper bundle (WiX v4 Burn).
+  ai-psd-thumbnails bootstrapper bundle (WiX v4 Burn).
 
   Chains two INDEPENDENT products:
     1. Ghostscript (optional dependency for previewless EPS / old AI files).
@@ -8,9 +8,9 @@
          release at install time (DownloadUrl + SHA512-verified payload), so
          this bundle never distributes AGPL-licensed bytes.
        - Skipped when any Ghostscript is already installed (registry detect).
-       - Permanent: uninstalling thumb-viewer never removes Ghostscript —
+       - Permanent: uninstalling ai-psd-thumbnails never removes Ghostscript —
          it is a separate product with its own Add/Remove Programs entry.
-    2. thumb-viewer.msi (our shell extension).
+    2. ai-psd-thumbnails.msi (our shell extension).
 
   Bundle UpgradeCode: 3258A938-B9B1-4E75-A0CE-9F018C28A23E (fixed for product lifetime;
   distinct from the MSI UpgradeCode).
@@ -19,9 +19,9 @@
      xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
-  <Bundle Name="thumb-viewer"
-          Version="0.2.0"
-          Manufacturer="thumb-viewer contributors"
+  <Bundle Name="ai-psd-thumbnails"
+          Version="0.3.0"
+          Manufacturer="ai-psd-thumbnails contributors"
           UpgradeCode="3258A938-B9B1-4E75-A0CE-9F018C28A23E">
 
     <BootstrapperApplication>
@@ -48,7 +48,7 @@
       <!--
         Ghostscript 10.07.1 (official Artifex installer, NSIS-based, /S silent).
         Vital=no: a failed/declined Ghostscript install must not abort the
-        thumb-viewer install — only previewless-EPS thumbnails depend on it.
+        ai-psd-thumbnails install — only previewless-EPS thumbnails depend on it.
       -->
       <ExePackage Id="Ghostscript"
           DisplayName="GPL Ghostscript 10.07.1 (separate product, AGPL)"
@@ -65,7 +65,7 @@
       </ExePackage>
 
       <MsiPackage Id="ThumbViewerMsi"
-          SourceFile="thumb-viewer-0.2.0.msi"
+          SourceFile="ai-psd-thumbnails-0.3.0.msi"
           Vital="yes" />
     </Chain>
 

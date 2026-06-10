@@ -35,7 +35,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     MSG, SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER,
 };
 
-use thumb_viewer_core::{decode_thumbnail, render::to_bgra_premul};
+use ai_psd_thumbnails_core::{decode_thumbnail, render::to_bgra_premul};
 
 use crate::bitmap::{create_bitmap_data, BitmapData};
 use crate::factory::OBJ_COUNT;

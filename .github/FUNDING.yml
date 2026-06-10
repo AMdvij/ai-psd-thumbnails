@@ -1,0 +1,6 @@
+# GitHub hiển thị nút "Sponsor" trên repo dựa vào file này.
+# Bỏ comment dòng nào anh có tài khoản; xóa dòng không dùng.
+github: teexiii          # GitHub Sponsors username (cần đăng ký tại github.com/sponsors trước)
+# ko_fi: teexiii
+# buy_me_a_coffee: teexiii
+# custom: ["https://paypal.me/teexiii"]

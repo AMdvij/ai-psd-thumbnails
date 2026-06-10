@@ -2,7 +2,7 @@
 name = "installer-ca"
 version = "0.1.0"
 edition = "2021"
-# Custom action executable for the thumb-viewer MSI.
+# Custom action executable for the ai-psd-thumbnails MSI.
 # Two verbs dispatched by argv[1]:
 #   restore-ai-progid    — deferred, no-impersonate: read HKCR\.ai default;
 #                          if == "SageThumbsImage.ai" restore to "Adobe.Illustrator.28"

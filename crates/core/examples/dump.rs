@@ -1,7 +1,7 @@
 //! CLI harness for manual visual verification.
 //!
 //! Usage:
-//!   cargo run -p thumb-viewer-core --example dump -- <input-file> <out.png> [size]
+//!   cargo run -p ai-psd-thumbnails-core --example dump -- <input-file> <out.png> [size]
 //!
 //! If PDFIUM_DLL_PATH is set, pdfium-backed formats (.ai PDF, .pdf) will render.
 //! Otherwise PDF-based files return NoThumbnail and the tool exits non-zero.
@@ -25,7 +25,7 @@ fn main() {
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("");
-    let ext = match thumb_viewer_core::detect::from_extension(ext_str) {
+    let ext = match ai_psd_thumbnails_core::detect::from_extension(ext_str) {
         Some(e) => e,
         None => {
             eprintln!("Unsupported extension: {ext_str:?}");
@@ -35,7 +35,7 @@ fn main() {
 
     // Initialise pdfium if DLL path is provided.
     if let Ok(dll_path) = std::env::var("PDFIUM_DLL_PATH") {
-        if let Err(e) = thumb_viewer_core::pdf::init(&dll_path) {
+        if let Err(e) = ai_psd_thumbnails_core::pdf::init(&dll_path) {
             eprintln!("Warning: pdfium init failed: {e}");
         }
     }
@@ -57,7 +57,7 @@ fn main() {
     );
 
     // Decode thumbnail.
-    let img = match thumb_viewer_core::decode_thumbnail(&data, ext, size) {
+    let img = match ai_psd_thumbnails_core::decode_thumbnail(&data, ext, size) {
         Ok(i) => i,
         Err(e) => {
             eprintln!("Decode failed: {e}");

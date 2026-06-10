@@ -1,5 +1,5 @@
 [package]
-name = "thumb-viewer-core"
+name = "ai-psd-thumbnails-core"
 version = "0.1.0"
 edition = "2021"
 

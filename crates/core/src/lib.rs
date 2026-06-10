@@ -1,4 +1,4 @@
-//! thumb-viewer-core: pure-Rust decode library.
+//! ai-psd-thumbnails-core: pure-Rust decode library.
 //!
 //! Extracts a square RGBA thumbnail from .ai, .psd, .psb, .eps, .svg files.
 //! No Win32 dependencies — fully unit-testable in isolation.

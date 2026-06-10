@@ -1,32 +1,32 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Build the thumb-viewer bootstrapper bundle (setup exe).
+    Build the ai-psd-thumbnails bootstrapper bundle (setup exe).
 
 .DESCRIPTION
     1. Builds the MSI first via build-msi.ps1 (payload assembly + wix build).
-    2. Compiles bundle.wxs into thumb-viewer-setup-<version>.exe (WiX Burn).
+    2. Compiles bundle.wxs into ai-psd-thumbnails-setup-<version>.exe (WiX Burn).
 
     The bundle chains the official Ghostscript installer (downloaded from the
     Artifex GitHub release at INSTALL time -- never embedded; skipped when
-    Ghostscript is already present) followed by thumb-viewer.msi.
+    Ghostscript is already present) followed by ai-psd-thumbnails.msi.
 
 .PARAMETER Version
-    Bundle/MSI version (default: 0.2.0). Must match bundle.wxs and
-    thumb-viewer.wxs.
+    Bundle/MSI version (default: 0.3.0). Must match bundle.wxs and
+    ai-psd-thumbnails.wxs.
 
 .EXAMPLE
     .\installer\build-bundle.ps1
 #>
 param(
-    [string]$Version = "0.2.0",
+    [string]$Version = "0.3.0",
     [string]$OutDir  = $PSScriptRoot
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$BundleOut = Join-Path $OutDir "thumb-viewer-setup-$Version.exe"
+$BundleOut = Join-Path $OutDir "ai-psd-thumbnails-setup-$Version.exe"
 
 Write-Host "==> Building MSI first..."
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build-msi.ps1") -Version $Version
@@ -56,4 +56,4 @@ try {
 
 Write-Host ""
 Write-Host "==> Bundle built successfully: $BundleOut"
-Write-Host "    Chain: [Ghostscript 10.07.1 via DownloadUrl, skipped if installed] -> [thumb-viewer.msi]"
+Write-Host "    Chain: [Ghostscript 10.07.1 via DownloadUrl, skipped if installed] -> [ai-psd-thumbnails.msi]"

@@ -1,14 +1,17 @@
 [package]
-name = "thumb-viewer-shell"
+name = "ai-psd-thumbnails-shell"
 version = "0.1.0"
 edition = "2021"
 
+# Lib (= DLL) name intentionally stays `thumb_viewer`: the filename is baked
+# into installed InprocServer32 registrations, exports.def, dev scripts, and
+# the COM smoke test. Renaming the product does not require renaming the DLL.
 [lib]
 name = "thumb_viewer"
 crate-type = ["cdylib"]
 
 [dependencies]
-thumb-viewer-core = { path = "../core" }
+ai-psd-thumbnails-core = { path = "../core" }
 log = "0.4"
 
 # windows-core must be a direct dep so that the #[implement] macro can resolve

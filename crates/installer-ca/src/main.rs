@@ -1,4 +1,4 @@
-//! MSI custom action executable for thumb-viewer installer.
+//! MSI custom action executable for ai-psd-thumbnails installer.
 //!
 //! Dispatches on argv[1]:
 //!   restore-ai-progid    — reads HKCR\.ai default value; if it equals the

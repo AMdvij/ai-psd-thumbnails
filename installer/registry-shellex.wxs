@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Registry declarations for thumb-viewer shell extension.
+  Registry declarations for the ai-psd-thumbnails shell extension.
 
   CLSID-A (thumbnail provider):  {90E3822E-5F70-40BF-884E-77544797AD41}
   CLSID-B (preview handler):     {2CFC1F9E-0B23-48C3-AE46-29025209D0D4}
@@ -103,7 +103,7 @@
   <!-- ── CLSID-B display name ──────────────────────────────────────────────────
 
        HKCR\CLSID\{2CFC1F9E-0B23-48C3-AE46-29025209D0D4}
-         (default) = "thumb-viewer Preview"
+         (default) = "ai-psd-thumbnails Preview"
   -->
   <Fragment>
     <Component Id="CMP_RegClsidB_DisplayName"
@@ -112,7 +112,7 @@
       <RegistryValue
           Root="HKCR"
           Key="CLSID\{2CFC1F9E-0B23-48C3-AE46-29025209D0D4}"
-          Value="thumb-viewer Preview"
+          Value="ai-psd-thumbnails Preview"
           Type="string"
           KeyPath="yes" />
     </Component>
@@ -276,7 +276,7 @@
   <!-- ── PreviewHandlers registration ─────────────────────────────────────────
 
        HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\PreviewHandlers
-         {2CFC1F9E-0B23-48C3-AE46-29025209D0D4} = "thumb-viewer Preview"
+         {2CFC1F9E-0B23-48C3-AE46-29025209D0D4} = "ai-psd-thumbnails Preview"
 
        This named value makes the preview handler discoverable by the shell's
        preview handler enumeration logic.
@@ -289,7 +289,7 @@
           Root="HKLM"
           Key="SOFTWARE\Microsoft\Windows\CurrentVersion\PreviewHandlers"
           Name="{2CFC1F9E-0B23-48C3-AE46-29025209D0D4}"
-          Value="thumb-viewer Preview"
+          Value="ai-psd-thumbnails Preview"
           Type="string"
           KeyPath="yes" />
     </Component>

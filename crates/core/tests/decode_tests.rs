@@ -1,10 +1,10 @@
-//! Integration tests for thumb-viewer-core decoders.
+//! Integration tests for ai-psd-thumbnails-core decoders.
 //!
 //! All fixtures are built in-memory from hand-crafted bytes so there is no
 //! external file dependency.  PDFium tests are conditionally skipped when
 //! PDFIUM_DLL_PATH is absent, keeping CI green without the DLL.
 
-use thumb_viewer_core::{decode_thumbnail, CoreError, Ext};
+use ai_psd_thumbnails_core::{decode_thumbnail, CoreError, Ext};
 
 // ── Shared JPEG fixture (2×2 red, valid JFIF) ────────────────────────────────
 
@@ -298,7 +298,7 @@ fn pdf_render_skipped_without_dll() {
 
     // Initialise pdfium explicitly; skip (don't fail) if the DLL cannot be loaded
     // in this environment (e.g. bash/WSL path translation issues in CI).
-    if let Err(e) = thumb_viewer_core::pdf::init(&dll_path) {
+    if let Err(e) = ai_psd_thumbnails_core::pdf::init(&dll_path) {
         eprintln!("pdfium init failed ({e}); skipping PDFium test");
         return;
     }

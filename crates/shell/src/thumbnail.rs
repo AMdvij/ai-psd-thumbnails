@@ -23,7 +23,7 @@ use windows::Win32::UI::Shell::{
     IThumbnailProvider, IThumbnailProvider_Impl, WTS_ALPHATYPE, WTSAT_ARGB,
 };
 
-use thumb_viewer_core::{decode_thumbnail, detect, render::to_bgra_premul};
+use ai_psd_thumbnails_core::{decode_thumbnail, detect, render::to_bgra_premul};
 
 use crate::bitmap::create_hbitmap;
 use crate::factory::OBJ_COUNT;
@@ -157,23 +157,23 @@ impl IThumbnailProvider_Impl for ThumbProvider_Impl {
 // ── Format detection ──────────────────────────────────────────────────────────
 
 /// Detect format from magic bytes.  Returns None for unrecognised data.
-pub(crate) fn detect_ext_from_bytes(data: &[u8]) -> Option<thumb_viewer_core::Ext> {
+pub(crate) fn detect_ext_from_bytes(data: &[u8]) -> Option<ai_psd_thumbnails_core::Ext> {
     if detect::is_8bps(data) {
         // PSD = version field 0x0001; PSB = 0x0002 (bytes 4-5, big-endian).
         if data.len() >= 6 && data[5] == 2 {
-            return Some(thumb_viewer_core::Ext::Psb);
+            return Some(ai_psd_thumbnails_core::Ext::Psb);
         }
-        return Some(thumb_viewer_core::Ext::Psd);
+        return Some(ai_psd_thumbnails_core::Ext::Psd);
     }
     if detect::is_dos_eps(data) || detect::is_ps_adobe(data) {
-        return Some(thumb_viewer_core::Ext::Eps);
+        return Some(ai_psd_thumbnails_core::Ext::Eps);
     }
     if detect::is_pdf(data) {
         // Both PDF-native .ai and pure PDF map to Ext::Ai (ai::decode handles PDF via pdf::render_page1).
-        return Some(thumb_viewer_core::Ext::Ai);
+        return Some(ai_psd_thumbnails_core::Ext::Ai);
     }
     if detect::is_svg(data) {
-        return Some(thumb_viewer_core::Ext::Svg);
+        return Some(ai_psd_thumbnails_core::Ext::Svg);
     }
     None
 }

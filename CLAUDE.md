@@ -1,4 +1,4 @@
-# thumb-viewer
+# ai-psd-thumbnails
 
 Windows Explorer thumbnail + preview-pane shell extension for `.ai .psd .psb .eps .svg`,
 written in Rust (windows-rs), shipped as a per-machine x64 MSI. Design rationale lives in
@@ -7,8 +7,8 @@ written in Rust (windows-rs), shipped as a per-machine x64 MSI. Design rationale
 ## Architecture
 
 ```
-crates/core          thumb-viewer-core   — pure decode/render, NO Win32 (unit-testable)
-crates/shell         thumb-viewer-shell  — cdylib `thumb_viewer.dll`, COM in-proc server
+crates/core          ai-psd-thumbnails-core   — pure decode/render, NO Win32 (unit-testable)
+crates/shell         ai-psd-thumbnails-shell  — cdylib `thumb_viewer.dll`, COM in-proc server
 crates/installer-ca  installer-ca        — MSI custom-action exe (2 verbs, see Installer)
 installer/           WiX v4 authoring + build script
 scripts/             dev register/unregister/cache-clear (elevated PowerShell)
@@ -36,8 +36,8 @@ Format → render path:
 ## Build
 
 ```powershell
-cargo build -p thumb-viewer-core                  # decode lib only
-cargo build -p thumb-viewer-shell --release       # → target/release/thumb_viewer.dll
+cargo build -p ai-psd-thumbnails-core                  # decode lib only
+cargo build -p ai-psd-thumbnails-shell --release       # → target/release/thumb_viewer.dll
 ```
 
 Target: `x86_64-pc-windows-msvc` (x64 only). The shell crate links `exports.def` so the four
@@ -48,7 +48,7 @@ COM entry points (`DllGetClassObject`, `DllCanUnloadNow`, `DllRegisterServer`,
 
 ```powershell
 cargo test --workspace --exclude installer-ca     # exclusion is REQUIRED
-cargo run -p thumb-viewer-core --example dump -- assets/test-files/sample.svg out.png 256
+cargo run -p ai-psd-thumbnails-core --example dump -- assets/test-files/sample.svg out.png 256
 ```
 
 - `--exclude installer-ca` is mandatory: the CA binary has an elevation manifest, so the test
@@ -92,13 +92,13 @@ tag must move together; record the new SHA256 here.
 ## MSI
 
 ```powershell
-installer/build-msi.ps1       # assembles installer/payload/ + wix build → thumb-viewer-<ver>.msi
+installer/build-msi.ps1       # assembles installer/payload/ + wix build → ai-psd-thumbnails-<ver>.msi
 ```
 
 - WiX **4.0.6** via `dotnet tool install --global wix --version 4.0.6` (WiX ≥5 needs .NET 8;
   this machine has .NET 6) + `wix extension add --global WixToolset.Util.wixext/4.0.6`.
 - Per-machine (HKLM, x64), MajorUpgrade enabled. Bundles `thumb_viewer.dll`, `pdfium.dll`,
-  `installer-ca.exe` into `Program Files\thumb-viewer\`.
+  `installer-ca.exe` into `Program Files\ai-psd-thumbnails\`.
 - Custom actions (`installer-ca.exe`): `restore-ai-progid` (deferred, no-impersonate —
   restores `.ai` → `Adobe.Illustrator.28` if a SageThumbs leftover hijacked it) and
   `notify-assoc-changed` (commit, **impersonated** — `SHChangeNotify` from session 0 is a
@@ -135,15 +135,15 @@ OS-owned and shared by every preview handler on the machine.
 ## Bootstrapper bundle (optional GS auto-install)
 
 ```powershell
-installer/build-bundle.ps1    # → thumb-viewer-setup-<ver>.exe (builds the MSI first)
+installer/build-bundle.ps1    # → ai-psd-thumbnails-setup-<ver>.exe (builds the MSI first)
 ```
 
 - WiX Burn bundle (`installer/bundle.wxs`, needs `WixToolset.Bal.wixext/4.0.6` global).
 - Chains the OFFICIAL Ghostscript installer via `DownloadUrl` (fetched from the Artifex
   GitHub release at install time, SHA512-pinned in bundle.wxs — never embedded, so the
-  setup exe distributes zero AGPL bytes) → then `thumb-viewer.msi`.
+  setup exe distributes zero AGPL bytes) → then `ai-psd-thumbnails.msi`.
 - Ghostscript step is skipped when any GS is already installed (HKLM `SOFTWARE\GPL
   Ghostscript`, both bitness views), is non-vital (decline/fail ≠ abort), and `Permanent`
-  (uninstalling thumb-viewer never removes Ghostscript — separate ARP entry).
+  (uninstalling ai-psd-thumbnails never removes Ghostscript — separate ARP entry).
 - When bumping the pinned GS release: update `DownloadUrl`, `Size`, and SHA512 `Hash` in
   bundle.wxs together.

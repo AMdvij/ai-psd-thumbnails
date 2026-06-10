@@ -52,7 +52,7 @@ pub(crate) fn ensure_pdfium_init() {
         None => return,
     };
     let dir_str = dir.to_string_lossy();
-    if let Err(e) = thumb_viewer_core::pdf::init(&dir_str) {
+    if let Err(e) = ai_psd_thumbnails_core::pdf::init(&dir_str) {
         log::warn!("pdfium init skipped: {e}");
     }
 }

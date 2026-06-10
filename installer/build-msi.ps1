@@ -1,26 +1,26 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Build the thumb-viewer MSI installer.
+    Build the ai-psd-thumbnails MSI installer.
 
 .DESCRIPTION
     1. Copies thumb_viewer.dll (release build) and pdfium.dll into installer\payload\.
     2. Copies installer-ca.exe (release build) into installer\payload\.
-    3. Runs `wix build` to produce thumb-viewer-<version>.msi.
+    3. Runs `wix build` to produce ai-psd-thumbnails-<version>.msi.
 
 .PARAMETER Version
-    Package version string (default: 0.2.0).  Must match the Version attribute in
-    thumb-viewer.wxs.
+    Package version string (default: 0.3.0).  Must match the Version attribute in
+    ai-psd-thumbnails.wxs.
 
 .PARAMETER OutDir
     Directory to write the output MSI to (default: installer\).
 
 .EXAMPLE
     .\installer\build-msi.ps1
-    .\installer\build-msi.ps1 -Version 0.2.0 -OutDir dist\
+    .\installer\build-msi.ps1 -Version 0.3.0 -OutDir dist\
 #>
 param(
-    [string]$Version = "0.2.0",
+    [string]$Version = "0.3.0",
     [string]$OutDir  = $PSScriptRoot
 )
 
@@ -35,7 +35,7 @@ $TargetDir   = Join-Path $RepoRoot "target\release"
 $PdfiumSrc   = Join-Path $RepoRoot "third_party\bin\pdfium.dll"
 $ThumbDllSrc = Join-Path $TargetDir "thumb_viewer.dll"
 $CaExeSrc    = Join-Path $TargetDir "installer-ca.exe"
-$MsiOut      = Join-Path $OutDir "thumb-viewer-$Version.msi"
+$MsiOut      = Join-Path $OutDir "ai-psd-thumbnails-$Version.msi"
 
 # â”€â”€ Validate prerequisites â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -78,7 +78,7 @@ Write-Host "    installer-ca.exe  <- $CaExeSrc"
 # â”€â”€ Run wix build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 $WxsSources = @(
-    (Join-Path $PSScriptRoot "thumb-viewer.wxs")
+    (Join-Path $PSScriptRoot "ai-psd-thumbnails.wxs")
     (Join-Path $PSScriptRoot "registry-shellex.wxs")
 )
 

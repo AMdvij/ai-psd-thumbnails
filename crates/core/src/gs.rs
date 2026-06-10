@@ -48,7 +48,7 @@ fn render_via_gs(data: &[u8]) -> Result<DecodedImage, CoreError> {
     // may render concurrently in one surrogate process).
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let tag = format!(
-        "thumb-viewer-gs-{}-{}",
+        "ai-psd-thumbnails-gs-{}-{}",
         std::process::id(),
         SEQ.fetch_add(1, Ordering::Relaxed)
     );

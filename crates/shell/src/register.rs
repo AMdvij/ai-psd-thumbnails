@@ -47,7 +47,7 @@ const PREVHOST_APPID: &str = "{6d2b5079-2f0b-48dd-ab7f-97cec514d30b}";
 const EXTS: &[&str] = &[".ai", ".psd", ".psb", ".eps", ".svg"];
 
 /// Preview handler display name shown in the Windows PreviewHandlers list.
-const PREVIEW_DISPLAY_NAME: &str = "thumb-viewer Preview";
+const PREVIEW_DISPLAY_NAME: &str = "ai-psd-thumbnails Preview";
 
 /// Registry path for the system preview-handlers list (HKLM).
 const PREVIEW_HANDLERS_KEY: &str =
@@ -250,7 +250,7 @@ fn register_impl() -> Result<(), HRESULT> {
     unsafe {
         let hkey = create_key_hkcr(&clsid_b_key)?;
         let r1 = set_sz(hkey, "AppID", PREVHOST_APPID);
-        let r2 = set_sz(hkey, "", "thumb-viewer Preview"); // optional display name
+        let r2 = set_sz(hkey, "", "ai-psd-thumbnails Preview"); // optional display name
         let _ = RegCloseKey(hkey);
         r1?;
         r2?;
