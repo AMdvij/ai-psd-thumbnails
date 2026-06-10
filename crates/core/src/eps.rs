@@ -19,12 +19,14 @@ const DOS_EPS_MAGIC: [u8; 4] = [0xC5, 0xD0, 0xD3, 0xC6];
 ///   1. DOS-EPS binary header → TIFF preview.
 ///   2. XMP metadata thumbnail (`xmpGImg` base64 JPEG) — the only preview
 ///      pure-PostScript EPS files (no binary header) usually carry.
-///
-/// Returns `CoreError::NoThumbnail` when neither yields an image.
+///   3. Ghostscript subprocess render (previewless files; no-op NoThumbnail
+///      when Ghostscript is not installed).
 pub fn decode(data: &[u8]) -> Result<DecodedImage, CoreError> {
     match decode_dos_preview(data) {
-        Err(CoreError::NoThumbnail) => crate::xmp::extract_xmp_thumbnail(data)
-            .ok_or(CoreError::NoThumbnail),
+        Err(CoreError::NoThumbnail) => match crate::xmp::extract_xmp_thumbnail(data) {
+            Some(img) => Ok(img),
+            None => crate::gs::render(data),
+        },
         other => other,
     }
 }
@@ -293,9 +295,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn no_dos_header_returns_no_thumbnail() {
+    fn no_dos_header_skips_dos_preview_path() {
+        // Full decode() may still succeed via the Ghostscript fallback on
+        // machines with GS installed, so assert on the DOS-preview unit only.
         let data = b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 100 100\n";
-        assert!(matches!(decode(data), Err(CoreError::NoThumbnail)));
+        assert!(matches!(decode_dos_preview(data), Err(CoreError::NoThumbnail)));
     }
 
     #[test]

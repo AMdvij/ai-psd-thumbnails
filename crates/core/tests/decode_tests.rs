@@ -242,11 +242,15 @@ fn svg_invalid_returns_error() {
 }
 
 #[test]
-fn eps_no_preview_returns_no_thumbnail() {
-    // Plain PS without DOS-EPS header → NoThumbnail (no GS feature active).
+fn eps_no_preview_renders_via_gs_or_returns_no_thumbnail() {
+    // Plain PS without DOS-EPS header / XMP: on machines with Ghostscript the
+    // fallback renders it; otherwise NoThumbnail. Either way, never a panic or
+    // hard decode error.
     let plain_ps = b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 72 72\n";
-    let result = decode_thumbnail(plain_ps, Ext::Eps, 256);
-    assert!(matches!(result, Err(CoreError::NoThumbnail)));
+    match decode_thumbnail(plain_ps, Ext::Eps, 256) {
+        Ok(img) => assert_eq!((img.width, img.height), (256, 256)),
+        Err(e) => assert!(matches!(e, CoreError::NoThumbnail), "unexpected: {e:?}"),
+    }
 }
 
 #[test]
@@ -270,10 +274,13 @@ fn ai_pdf_sniff_without_pdfium_returns_no_thumbnail_or_pdf_error() {
 }
 
 #[test]
-fn ai_ps_adobe_without_preview_returns_no_thumbnail() {
+fn ai_ps_adobe_without_preview_renders_via_gs_or_returns_no_thumbnail() {
+    // Same Ghostscript-aware contract as the EPS no-preview test.
     let ps_ai = b"%!PS-Adobe-3.1 EPSF-3.0\n%%Creator: Adobe Illustrator\n";
-    let result = decode_thumbnail(ps_ai, Ext::Ai, 256);
-    assert!(matches!(result, Err(CoreError::NoThumbnail)));
+    match decode_thumbnail(ps_ai, Ext::Ai, 256) {
+        Ok(img) => assert_eq!((img.width, img.height), (256, 256)),
+        Err(e) => assert!(matches!(e, CoreError::NoThumbnail), "unexpected: {e:?}"),
+    }
 }
 
 // ── PDFium test (skipped when DLL absent) ────────────────────────────────────

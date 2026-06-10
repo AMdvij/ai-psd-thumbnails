@@ -29,8 +29,8 @@ Format → render path:
 | `.psd` | resource 1036 embedded JPEG thumb (RGB; 1033 = old BGR) | flattened composite |
 | `.psb` | same (Image Resources section layout identical to PSD) | composite (RLE counts widen to 4 bytes) |
 | `.ai` (PDF-style) | pdfium page-1 render | — |
-| `.ai` (EPS-style) | none | `gs-fallback` feature only |
-| `.eps` | DOS-EPS embedded TIFF preview | `gs-fallback` feature only |
+| `.ai` (EPS-style) | DOS-EPS TIFF → `%AI_Thumbnail` → XMP `xmpGImg` JPEG | Ghostscript subprocess |
+| `.eps` | DOS-EPS embedded TIFF preview → XMP `xmpGImg` JPEG | Ghostscript subprocess |
 | `.svg` | resvg/usvg (external hrefs disabled, dims capped) | — |
 
 ## Build
@@ -123,8 +123,27 @@ OS-owned and shared by every preview handler on the machine.
 
 ## Feature flags
 
-- `gs-fallback` (crates/core, off by default): **stub — the feature flag compiles but the
-  Ghostscript render path is not yet implemented** (`gs.rs` always returns `NoThumbnail`).
-  When fully implemented it will render previewless EPS / old EPS-style `.ai` by dynamically
-  loading `gsdll64.dll` at runtime. Ghostscript is AGPL — it must NOT be bundled, linked, or
-  installed by the MSI; the feature will only use a copy the user already has.
+- `gs-fallback` (crates/core, **default-on**): renders previewless EPS / old EPS-style `.ai`
+  by spawning the user's installed Ghostscript (`gswin64c.exe`/`gswin32c.exe`) as an isolated
+  subprocess (`-dSAFER`, ppmraw output, 15s kill-timeout, no console window). Discovery:
+  `GS_PROG` env → `Program Files[ (x86)]\gs\gs*\bin` → PATH; cached per process. Ghostscript
+  (AGPL) is NEVER bundled, linked, or loaded in-process — only executed at arm's length if
+  already installed; machines without it fall through to NoThumbnail. The default-on shift
+  from the original off-by-default plan is intentional: the subprocess pattern removes the
+  AGPL-linking concern that motivated the gate, and runtime detection is the real switch.
+
+## Bootstrapper bundle (optional GS auto-install)
+
+```powershell
+installer/build-bundle.ps1    # → thumb-viewer-setup-<ver>.exe (builds the MSI first)
+```
+
+- WiX Burn bundle (`installer/bundle.wxs`, needs `WixToolset.Bal.wixext/4.0.6` global).
+- Chains the OFFICIAL Ghostscript installer via `DownloadUrl` (fetched from the Artifex
+  GitHub release at install time, SHA512-pinned in bundle.wxs — never embedded, so the
+  setup exe distributes zero AGPL bytes) → then `thumb-viewer.msi`.
+- Ghostscript step is skipped when any GS is already installed (HKLM `SOFTWARE\GPL
+  Ghostscript`, both bitness views), is non-vital (decline/fail ≠ abort), and `Permanent`
+  (uninstalling thumb-viewer never removes Ghostscript — separate ARP entry).
+- When bumping the pinned GS release: update `DownloadUrl`, `Size`, and SHA512 `Hash` in
+  bundle.wxs together.

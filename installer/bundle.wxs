@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  thumb-viewer bootstrapper bundle (WiX v4 Burn).
+
+  Chains two INDEPENDENT products:
+    1. Ghostscript (optional dependency for previewless EPS / old AI files).
+       - NOT embedded in this exe: fetched from the official Artifex GitHub
+         release at install time (DownloadUrl + SHA512-verified payload), so
+         this bundle never distributes AGPL-licensed bytes.
+       - Skipped when any Ghostscript is already installed (registry detect).
+       - Permanent: uninstalling thumb-viewer never removes Ghostscript —
+         it is a separate product with its own Add/Remove Programs entry.
+    2. thumb-viewer.msi (our shell extension).
+
+  Bundle UpgradeCode: 3258A938-B9B1-4E75-A0CE-9F018C28A23E (fixed for product lifetime;
+  distinct from the MSI UpgradeCode).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Bundle Name="thumb-viewer"
+          Version="0.2.0"
+          Manufacturer="thumb-viewer contributors"
+          UpgradeCode="3258A938-B9B1-4E75-A0CE-9F018C28A23E">
+
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication
+          LicenseUrl=""
+          Theme="hyperlinkLicense" />
+    </BootstrapperApplication>
+
+    <!-- Detect any existing Ghostscript install (64-bit or 32-bit view). -->
+    <util:RegistrySearch Id="GsSearch64"
+        Variable="GsInstalled64"
+        Root="HKLM"
+        Key="SOFTWARE\GPL Ghostscript"
+        Result="exists"
+        Bitness="always64" />
+    <util:RegistrySearch Id="GsSearch32"
+        Variable="GsInstalled32"
+        Root="HKLM"
+        Key="SOFTWARE\GPL Ghostscript"
+        Result="exists"
+        Bitness="always32" />
+
+    <Chain>
+      <!--
+        Ghostscript 10.07.1 (official Artifex installer, NSIS-based, /S silent).
+        Vital=no: a failed/declined Ghostscript install must not abort the
+        thumb-viewer install — only previewless-EPS thumbnails depend on it.
+      -->
+      <ExePackage Id="Ghostscript"
+          DisplayName="GPL Ghostscript 10.07.1 (separate product, AGPL)"
+          Permanent="yes"
+          Vital="no"
+          Cache="remove"
+          DetectCondition="GsInstalled64 OR GsInstalled32"
+          InstallArguments="/S">
+        <ExePackagePayload
+            Name="gs10071w64.exe"
+            DownloadUrl="https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs10071/gs10071w64.exe"
+            Hash="BAE62C525FFE6D6D8A747DC92256A16C90FA20C59BE5BA98494CD2E408395528542212B94E461ACD68F09DC0FD5B96AB04072BB087554854335A9B2AD28A5EB9"
+            Size="64966216" />
+      </ExePackage>
+
+      <MsiPackage Id="ThumbViewerMsi"
+          SourceFile="thumb-viewer-0.2.0.msi"
+          Vital="yes" />
+    </Chain>
+
+  </Bundle>
+</Wix>

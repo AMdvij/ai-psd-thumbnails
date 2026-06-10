@@ -10,7 +10,7 @@
   <Package
       Name="thumb-viewer"
       Manufacturer="thumb-viewer contributors"
-      Version="0.1.4"
+      Version="0.2.0"
       UpgradeCode="F4B5BFA4-F277-4D9A-B8C2-7EF38B0357B9"
       Language="1033"
       Codepage="1252"
@@ -185,12 +185,13 @@
           Key="SOFTWARE\thumb-viewer"
           Name="Version"
           Type="string"
-          Value="0.1.4"
+          Value="0.2.0"
           KeyPath="yes" />
     </Component>
   </Fragment>
 
 </Wix>
+
 
 
 

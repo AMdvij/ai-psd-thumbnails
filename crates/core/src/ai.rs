@@ -49,14 +49,9 @@ fn decode_ps_ai(data: &[u8]) -> Result<DecodedImage, CoreError> {
         return Ok(img);
     }
 
-    // 4. Optional Ghostscript fallback.
-    #[cfg(feature = "gs-fallback")]
-    {
-        return crate::gs::render(data);
-    }
-
-    // 5. No usable preview found.
-    Err(CoreError::NoThumbnail)
+    // 4. Ghostscript fallback (no-op NoThumbnail when the feature is off or
+    //    Ghostscript is not installed).
+    crate::gs::render(data)
 }
 
 /// Scan the PostScript stream for a `%AI_Thumbnail` block and decode the

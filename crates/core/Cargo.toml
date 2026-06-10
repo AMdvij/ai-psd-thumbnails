@@ -6,9 +6,13 @@ edition = "2021"
 # No windows/Win32 dependencies — keeps this crate cross-testable and fast to compile.
 
 [features]
-# Feature-gated Ghostscript fallback for EPS/old-AI without embedded preview.
-# Dynamically loads gsdll64.dll; AGPL — NOT bundled with the MSI.
-gs-fallback = ["dep:libloading"]
+# Ghostscript fallback for EPS/old-AI without embedded preview. Spawns the
+# user's installed gswin64c/gswin32c as an isolated subprocess (never bundles,
+# links, or loads Ghostscript in-process — AGPL stays at arm's length), so the
+# feature is safe to ship enabled; machines without Ghostscript just fall
+# through to NoThumbnail at runtime.
+default = ["gs-fallback"]
+gs-fallback = []
 
 [dependencies]
 # Error handling
@@ -43,9 +47,6 @@ base64 = "0.22"
 # 0.11+ required: 0.9 rejects palette (PhotometricInterpretation=3) TIFFs,
 # which Illustrator/AdobeStock DOS-EPS previews commonly use.
 tiff = "0.11"
-
-# Optional Ghostscript dynamic loading
-libloading = { version = "0.8", optional = true }
 
 [dev-dependencies]
 # PNG output for the dump example and test assertions
