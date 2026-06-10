@@ -4,3 +4,5 @@ out-*.*
 /installer/payload/
 *.msi
 *.wixpdb
+/.wix/
+installer/decompiled.wxs
