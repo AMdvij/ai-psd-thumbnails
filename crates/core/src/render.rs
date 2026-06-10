@@ -33,8 +33,14 @@ pub fn fit_square(img: DecodedImage, size: u32) -> DecodedImage {
     let scaled_w = ((img.width as f64 * scale).round() as u32).max(1).min(size);
     let scaled_h = ((img.height as f64 * scale).round() as u32).max(1).min(size);
 
-    // Scale the source pixels with nearest-neighbour sampling (fast, sufficient for thumbnails).
-    let scaled = scale_nearest(&img, scaled_w, scaled_h);
+    // Downscale with box averaging — halftone/dithered sources (common in EPS
+    // previews) alias into visible checker patterns under nearest-neighbour.
+    // Upscale keeps nearest (box degenerates to it for 1-pixel footprints).
+    let scaled = if scaled_w < img.width || scaled_h < img.height {
+        scale_box_average(&img, scaled_w, scaled_h)
+    } else {
+        scale_nearest(&img, scaled_w, scaled_h)
+    };
 
     // Letterbox: centre the scaled image in a size × size transparent canvas.
     let offset_x = (size - scaled_w) / 2;
@@ -68,6 +74,43 @@ fn scale_nearest(img: &DecodedImage, target_w: u32, target_h: u32) -> Vec<u8> {
             let src = ((sy * img.width + sx) * 4) as usize;
             let dst = ((dy * target_w + dx) * 4) as usize;
             out[dst..dst + 4].copy_from_slice(&img.rgba[src..src + 4]);
+        }
+    }
+
+    out
+}
+
+/// Box-average downscale: each destination pixel is the mean of all source
+/// pixels in its footprint. Averages out halftone dither instead of aliasing
+/// it into moiré/checker artifacts.
+fn scale_box_average(img: &DecodedImage, target_w: u32, target_h: u32) -> Vec<u8> {
+    let mut out = vec![0u8; (target_w * target_h * 4) as usize];
+    let (sw, sh) = (img.width as usize, img.height as usize);
+
+    for dy in 0..target_h as usize {
+        let sy0 = dy * sh / target_h as usize;
+        let sy1 = (((dy + 1) * sh) / target_h as usize).max(sy0 + 1).min(sh.max(sy0 + 1));
+        for dx in 0..target_w as usize {
+            let sx0 = dx * sw / target_w as usize;
+            let sx1 = (((dx + 1) * sw) / target_w as usize).max(sx0 + 1).min(sw.max(sx0 + 1));
+
+            let (mut r, mut g, mut b, mut a) = (0u64, 0u64, 0u64, 0u64);
+            for sy in sy0..sy1 {
+                let row = sy * sw;
+                for sx in sx0..sx1 {
+                    let p = (row + sx) * 4;
+                    r += img.rgba[p] as u64;
+                    g += img.rgba[p + 1] as u64;
+                    b += img.rgba[p + 2] as u64;
+                    a += img.rgba[p + 3] as u64;
+                }
+            }
+            let n = ((sy1 - sy0) * (sx1 - sx0)) as u64;
+            let dst = (dy * target_w as usize + dx) * 4;
+            out[dst] = (r / n) as u8;
+            out[dst + 1] = (g / n) as u8;
+            out[dst + 2] = (b / n) as u8;
+            out[dst + 3] = (a / n) as u8;
         }
     }
 

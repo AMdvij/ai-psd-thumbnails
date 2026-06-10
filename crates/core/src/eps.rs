@@ -171,6 +171,18 @@ fn decode_palette_tiff<R: std::io::Read + std::io::Seek>(
         return Err(no_thumb("unsupported compression (only none/PackBits)"));
     }
 
+    // Palette TIFFs may carry extra samples per pixel (Photoshop writes
+    // index+alpha as SamplesPerPixel=2). The palette index is sample 0;
+    // sample 1, when present, is treated as alpha. Default per TIFF 6.0 is 1.
+    let spp = decoder
+        .get_tag(Tag::SamplesPerPixel)
+        .ok()
+        .and_then(|v| v.into_u16().ok())
+        .unwrap_or(1) as usize;
+    if spp == 0 || spp > 4 {
+        return Err(no_thumb("unsupported samples per pixel"));
+    }
+
     let colormap = decoder
         .get_tag_u16_vec(Tag::ColorMap)
         .map_err(|_| no_thumb("missing ColorMap"))?;
@@ -189,8 +201,8 @@ fn decode_palette_tiff<R: std::io::Read + std::io::Seek>(
         return Err(no_thumb("strip offset/count tables mismatched"));
     }
 
-    let expected = (width as usize) * (height as usize);
-    let mut indices: Vec<u8> = Vec::with_capacity(expected);
+    let expected = (width as usize) * (height as usize) * spp;
+    let mut samples: Vec<u8> = Vec::with_capacity(expected);
     for (&off, &count) in offsets.iter().zip(&counts) {
         let (start, len) = (off as usize, count as usize);
         let end = start
@@ -200,36 +212,43 @@ fn decode_palette_tiff<R: std::io::Read + std::io::Seek>(
             return Err(no_thumb("strip exceeds preview blob"));
         }
         let strip = &tiff_bytes[start..end];
-        let remaining = expected.saturating_sub(indices.len());
+        let remaining = expected.saturating_sub(samples.len());
         if remaining == 0 {
             break;
         }
         if compression == 1 {
-            indices.extend_from_slice(&strip[..strip.len().min(remaining)]);
+            samples.extend_from_slice(&strip[..strip.len().min(remaining)]);
         } else {
-            crate::psd::packbits_decode(strip, &mut indices, remaining)?;
+            crate::psd::packbits_decode(strip, &mut samples, remaining)?;
         }
     }
 
-    if indices.len() < expected {
-        return Err(no_thumb("strip data shorter than width×height"));
+    if samples.len() < expected {
+        return Err(no_thumb("strip data shorter than width×height×samples"));
     }
-    indices.truncate(expected);
+    samples.truncate(expected);
 
-    let rgba = expand_palette(&indices, &colormap)?;
+    let rgba = expand_palette(&samples, spp, &colormap)?;
     Ok(DecodedImage { width, height, rgba })
 }
 
-/// Expand 8-bit palette indices to RGBA using the TIFF ColorMap tag.
+/// Expand 8-bit palette samples to RGBA using the TIFF ColorMap tag.
+///
+/// `samples` holds `spp` interleaved bytes per pixel: sample 0 is the palette
+/// index; any extra samples are skipped (stride only). Photoshop writes
+/// index+alpha palette TIFFs (SamplesPerPixel=2, ExtraSamples=associated),
+/// but that alpha plane is halftone-dithered 0/255 — honouring it produces a
+/// checkerboard-speckled thumbnail, so we match the Windows GDI+ reference
+/// behaviour and render the palette colours opaque.
 ///
 /// The ColorMap stores 16-bit values in three consecutive planes
 /// (all R entries, then all G, then all B); each plane has 2^bits entries.
 /// Out-of-range indices and short colormaps resolve to black rather than
 /// erroring — the preview is best-effort.
-fn expand_palette(indices: &[u8], colormap: &[u16]) -> Result<Vec<u8>, CoreError> {
+fn expand_palette(samples: &[u8], spp: usize, colormap: &[u16]) -> Result<Vec<u8>, CoreError> {
     let plane = colormap.len() / 3;
-    if plane == 0 {
-        log::debug!("DOS-EPS TIFF palette: empty/short ColorMap");
+    if plane == 0 || spp == 0 {
+        log::debug!("DOS-EPS TIFF palette: empty/short ColorMap or zero spp");
         return Err(CoreError::NoThumbnail);
     }
     let component = |plane_idx: usize, i: usize| -> u8 {
@@ -238,10 +257,10 @@ fn expand_palette(indices: &[u8], colormap: &[u16]) -> Result<Vec<u8>, CoreError
             .map(|&v| (v >> 8) as u8)
             .unwrap_or(0)
     };
-    Ok(indices
-        .iter()
-        .flat_map(|&idx| {
-            let i = (idx as usize).min(plane - 1);
+    Ok(samples
+        .chunks_exact(spp)
+        .flat_map(|px| {
+            let i = (px[0] as usize).min(plane - 1);
             [component(0, i), component(1, i), component(2, i), 255]
         })
         .collect())
@@ -288,20 +307,33 @@ mod tests {
             0x0000, 0x0000, // G plane
             0x0000, 0xFF00, // B plane
         ];
-        let rgba = expand_palette(&[0, 1, 1], &colormap).unwrap();
+        let rgba = expand_palette(&[0, 1, 1], 1, &colormap).unwrap();
         assert_eq!(rgba, [255, 0, 0, 255, 0, 0, 255, 255, 0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn palette_extra_samples_are_skipped_as_stride() {
+        // Index+alpha (SamplesPerPixel=2): only sample 0 (the index) is used;
+        // the dithered alpha sample is ignored and pixels render opaque.
+        let colormap: Vec<u16> = vec![
+            0xFF00, 0x0000, // R plane
+            0x0000, 0x0000, // G plane
+            0x0000, 0xFF00, // B plane
+        ];
+        let rgba = expand_palette(&[1, 0x80, 0, 0xFF], 2, &colormap).unwrap();
+        assert_eq!(rgba, [0, 0, 255, 255, 255, 0, 0, 255]);
     }
 
     #[test]
     fn palette_out_of_range_index_clamps_instead_of_panicking() {
         let colormap: Vec<u16> = vec![0x1100, 0x2200, 0x3300]; // 1 entry
-        let rgba = expand_palette(&[7], &colormap).unwrap();
+        let rgba = expand_palette(&[7], 1, &colormap).unwrap();
         assert_eq!(rgba, [0x11, 0x22, 0x33, 255]);
     }
 
     #[test]
     fn palette_empty_colormap_returns_no_thumbnail() {
-        assert!(matches!(expand_palette(&[0], &[]), Err(CoreError::NoThumbnail)));
+        assert!(matches!(expand_palette(&[0], 1, &[]), Err(CoreError::NoThumbnail)));
     }
 
     #[test]
