@@ -8,3 +8,5 @@ out-*.*
 installer/decompiled.wxs
 build.log
 clippy.txt
+plans/
+.claude/
