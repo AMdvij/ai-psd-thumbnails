@@ -535,7 +535,7 @@ dependencies = [
  "ravif",
  "rayon",
  "rgb",
- "tiff 0.11.3",
+ "tiff",
  "zune-core 0.5.1",
  "zune-jpeg 0.5.15",
 ]
@@ -1294,7 +1294,7 @@ dependencies = [
  "pdfium-render",
  "resvg",
  "thiserror 1.0.69",
- "tiff 0.9.1",
+ "tiff",
  "tiny-skia",
  "usvg",
 ]
@@ -1307,17 +1307,6 @@ dependencies = [
  "thumb-viewer-core",
  "windows",
  "windows-core",
-]
-
-[[package]]
-name = "tiff"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba1310fcea54c6a9a4fd1aad794ecc02c31682f6bfbecdf460bf19533eed1e3e"
-dependencies = [
- "flate2",
- "jpeg-decoder",
- "weezl",
 ]
 
 [[package]]

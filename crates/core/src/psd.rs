@@ -407,7 +407,11 @@ fn decode_rle_composite(
 /// This prevents a crafted repeat-run sequence from driving unbounded Vec growth
 /// (a single PackBits repeat token can expand ~64×; without a cap a small
 /// compressed file could exhaust process memory).
-fn packbits_decode(input: &[u8], output: &mut Vec<u8>, max_output: usize) -> Result<(), CoreError> {
+pub(crate) fn packbits_decode(
+    input: &[u8],
+    output: &mut Vec<u8>,
+    max_output: usize,
+) -> Result<(), CoreError> {
     let start_len = output.len();
     let mut i = 0;
     while i < input.len() {

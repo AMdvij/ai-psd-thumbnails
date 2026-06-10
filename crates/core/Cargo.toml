@@ -36,8 +36,10 @@ tiny-skia = "0.11"
 # JPEG decoding for PSD resource 1036/1033 embedded thumbnails
 jpeg-decoder = "0.3"
 
-# TIFF decoding for DOS-EPS embedded previews
-tiff = "0.9"
+# TIFF decoding for DOS-EPS embedded previews.
+# 0.11+ required: 0.9 rejects palette (PhotometricInterpretation=3) TIFFs,
+# which Illustrator/AdobeStock DOS-EPS previews commonly use.
+tiff = "0.11"
 
 # Optional Ghostscript dynamic loading
 libloading = { version = "0.8", optional = true }

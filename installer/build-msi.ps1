@@ -9,7 +9,7 @@
     3. Runs `wix build` to produce thumb-viewer-<version>.msi.
 
 .PARAMETER Version
-    Package version string (default: 0.1.0).  Must match the Version attribute in
+    Package version string (default: 0.1.1).  Must match the Version attribute in
     thumb-viewer.wxs.
 
 .PARAMETER OutDir
@@ -20,7 +20,7 @@
     .\installer\build-msi.ps1 -Version 0.2.0 -OutDir dist\
 #>
 param(
-    [string]$Version = "0.1.0",
+    [string]$Version = "0.1.1",
     [string]$OutDir  = $PSScriptRoot
 )
 

@@ -79,10 +79,17 @@ fn decode_tiff_preview(tiff_bytes: &[u8]) -> Result<DecodedImage, CoreError> {
         return Err(CoreError::NoThumbnail);
     }
 
-    let color_type = decoder.colortype().map_err(|e| {
-        log::debug!("DOS-EPS TIFF color type error: {e}");
-        CoreError::NoThumbnail
-    })?;
+    // The tiff crate refuses palette (PhotometricInterpretation=3) images in
+    // colortype()/read_image(), but Illustrator/AdobeStock DOS-EPS previews
+    // are commonly 8-bit palette TIFFs. Its tag reader still works, so palette
+    // images take a manual strip-reading path instead.
+    let color_type = match decoder.colortype() {
+        Ok(ct) => ct,
+        Err(e) => {
+            log::debug!("DOS-EPS TIFF color type unsupported, trying palette path: {e}");
+            return decode_palette_tiff(&mut decoder, tiff_bytes, width, height);
+        }
+    };
 
     let result = decoder.read_image().map_err(|e| {
         log::debug!("DOS-EPS TIFF decode error: {e}");
@@ -100,6 +107,14 @@ fn decode_tiff_preview(tiff_bytes: &[u8]) -> Result<DecodedImage, CoreError> {
         (ColorType::GrayA(8), DecodingResult::U8(pixels)) => {
             pixels.chunks_exact(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect()
         }
+        (ColorType::CMYK(8), DecodingResult::U8(pixels)) => pixels
+            .chunks_exact(4)
+            .flat_map(|p| {
+                let k = p[3] as u32;
+                let to_rgb = |v: u8| (((255 - v as u32) * (255 - k)) / 255) as u8;
+                [to_rgb(p[0]), to_rgb(p[1]), to_rgb(p[2]), 255]
+            })
+            .collect(),
         (ct, _) => {
             log::debug!("DOS-EPS TIFF: unsupported color type {ct:?}");
             return Err(CoreError::NoThumbnail);
@@ -107,6 +122,129 @@ fn decode_tiff_preview(tiff_bytes: &[u8]) -> Result<DecodedImage, CoreError> {
     };
 
     Ok(DecodedImage { width, height, rgba })
+}
+
+/// Manual decode path for 8-bit palette TIFFs the `tiff` crate refuses.
+///
+/// Uses the crate's tag reader (which works fine for palette IFDs) to locate
+/// strips, decompresses them (uncompressed or PackBits only — LZW palette
+/// previews are rare enough to defer), and expands indices through ColorMap.
+/// All strip offsets/lengths come from a hostile file: every slice is
+/// bounds-checked against the preview blob and output is capped at
+/// width×height before allocation-relevant work.
+fn decode_palette_tiff<R: std::io::Read + std::io::Seek>(
+    decoder: &mut tiff::decoder::Decoder<R>,
+    tiff_bytes: &[u8],
+    width: u32,
+    height: u32,
+) -> Result<DecodedImage, CoreError> {
+    use tiff::tags::Tag;
+
+    let no_thumb = |what: &str| {
+        log::debug!("DOS-EPS palette TIFF: {what}");
+        CoreError::NoThumbnail
+    };
+
+    let photometric = decoder
+        .get_tag(Tag::PhotometricInterpretation)
+        .ok()
+        .and_then(|v| v.into_u16().ok());
+    if photometric != Some(3) {
+        return Err(no_thumb("not palette photometric"));
+    }
+
+    let bits = decoder
+        .get_tag(Tag::BitsPerSample)
+        .ok()
+        .and_then(|v| v.into_u16().ok());
+    if bits != Some(8) {
+        return Err(no_thumb("bits per sample != 8"));
+    }
+
+    // Compression: absent tag defaults to 1 (uncompressed) per TIFF 6.0.
+    let compression = decoder
+        .get_tag(Tag::Compression)
+        .ok()
+        .and_then(|v| v.into_u16().ok())
+        .unwrap_or(1);
+    if compression != 1 && compression != 32773 {
+        return Err(no_thumb("unsupported compression (only none/PackBits)"));
+    }
+
+    let colormap = decoder
+        .get_tag_u16_vec(Tag::ColorMap)
+        .map_err(|_| no_thumb("missing ColorMap"))?;
+
+    let offsets = decoder
+        .get_tag(Tag::StripOffsets)
+        .map_err(|_| no_thumb("missing StripOffsets"))?
+        .into_u64_vec()
+        .map_err(|_| no_thumb("bad StripOffsets"))?;
+    let counts = decoder
+        .get_tag(Tag::StripByteCounts)
+        .map_err(|_| no_thumb("missing StripByteCounts"))?
+        .into_u64_vec()
+        .map_err(|_| no_thumb("bad StripByteCounts"))?;
+    if offsets.len() != counts.len() || offsets.is_empty() {
+        return Err(no_thumb("strip offset/count tables mismatched"));
+    }
+
+    let expected = (width as usize) * (height as usize);
+    let mut indices: Vec<u8> = Vec::with_capacity(expected);
+    for (&off, &count) in offsets.iter().zip(&counts) {
+        let (start, len) = (off as usize, count as usize);
+        let end = start
+            .checked_add(len)
+            .ok_or_else(|| no_thumb("strip range overflow"))?;
+        if end > tiff_bytes.len() {
+            return Err(no_thumb("strip exceeds preview blob"));
+        }
+        let strip = &tiff_bytes[start..end];
+        let remaining = expected.saturating_sub(indices.len());
+        if remaining == 0 {
+            break;
+        }
+        if compression == 1 {
+            indices.extend_from_slice(&strip[..strip.len().min(remaining)]);
+        } else {
+            crate::psd::packbits_decode(strip, &mut indices, remaining)?;
+        }
+    }
+
+    if indices.len() < expected {
+        return Err(no_thumb("strip data shorter than width×height"));
+    }
+    indices.truncate(expected);
+
+    let rgba = expand_palette(&indices, &colormap)?;
+    Ok(DecodedImage { width, height, rgba })
+}
+
+/// Expand 8-bit palette indices to RGBA using the TIFF ColorMap tag.
+///
+/// The ColorMap stores 16-bit values in three consecutive planes
+/// (all R entries, then all G, then all B); each plane has 2^bits entries.
+/// Out-of-range indices and short colormaps resolve to black rather than
+/// erroring — the preview is best-effort.
+fn expand_palette(indices: &[u8], colormap: &[u16]) -> Result<Vec<u8>, CoreError> {
+    let plane = colormap.len() / 3;
+    if plane == 0 {
+        log::debug!("DOS-EPS TIFF palette: empty/short ColorMap");
+        return Err(CoreError::NoThumbnail);
+    }
+    let component = |plane_idx: usize, i: usize| -> u8 {
+        colormap
+            .get(plane_idx * plane + i)
+            .map(|&v| (v >> 8) as u8)
+            .unwrap_or(0)
+    };
+    Ok(indices
+        .iter()
+        .flat_map(|&idx| {
+            let i = (idx as usize).min(plane - 1);
+            [component(0, i), component(1, i), component(2, i), 255]
+        })
+        .collect())
 }
 
 fn read_u32_le(b: &[u8]) -> u32 {
@@ -139,6 +277,31 @@ mod tests {
         hdr[..4].copy_from_slice(&DOS_EPS_MAGIC);
         // All offsets/lengths zero → no TIFF preview.
         assert!(matches!(decode(&hdr), Err(CoreError::NoThumbnail)));
+    }
+
+    #[test]
+    fn palette_expansion_maps_indices_via_colormap_planes() {
+        // 2-entry colormap: index 0 → red, index 1 → blue (16-bit values,
+        // high byte is the 8-bit component).
+        let colormap: Vec<u16> = vec![
+            0xFF00, 0x0000, // R plane
+            0x0000, 0x0000, // G plane
+            0x0000, 0xFF00, // B plane
+        ];
+        let rgba = expand_palette(&[0, 1, 1], &colormap).unwrap();
+        assert_eq!(rgba, [255, 0, 0, 255, 0, 0, 255, 255, 0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn palette_out_of_range_index_clamps_instead_of_panicking() {
+        let colormap: Vec<u16> = vec![0x1100, 0x2200, 0x3300]; // 1 entry
+        let rgba = expand_palette(&[7], &colormap).unwrap();
+        assert_eq!(rgba, [0x11, 0x22, 0x33, 255]);
+    }
+
+    #[test]
+    fn palette_empty_colormap_returns_no_thumbnail() {
+        assert!(matches!(expand_palette(&[0], &[]), Err(CoreError::NoThumbnail)));
     }
 
     #[test]
