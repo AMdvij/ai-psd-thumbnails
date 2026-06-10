@@ -55,17 +55,33 @@ pub fn init(dll_path: &str) -> Result<(), CoreError> {
     Ok(())
 }
 
-/// Attempt to auto-initialise from the `PDFIUM_DLL_PATH` environment variable.
-/// Returns `CoreError::NoThumbnail` (not a hard error) if the variable is absent,
-/// so callers can gracefully degrade when the DLL is not present.
+/// Attempt to auto-initialise by searching, in order: the `PDFIUM_DLL_PATH`
+/// environment variable (a directory), the executable's own directory, then
+/// `third_party/bin` relative to the working directory (dev/CLI runs).
+/// Returns `CoreError::NoThumbnail` (not a hard error) when no candidate
+/// works, so callers can gracefully degrade when the DLL is not present.
 fn ensure_init() -> Result<(), CoreError> {
     if PDFIUM.get().is_some() {
         return Ok(());
     }
-    match std::env::var("PDFIUM_DLL_PATH") {
-        Ok(path) => init(&path),
-        Err(_) => Err(CoreError::NoThumbnail),
+
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(p) = std::env::var("PDFIUM_DLL_PATH") {
+        candidates.push(p.into());
     }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.to_path_buf());
+        }
+    }
+    candidates.push("third_party/bin".into());
+
+    for dir in &candidates {
+        if dir.join("pdfium.dll").is_file() && init(&dir.to_string_lossy()).is_ok() {
+            return Ok(());
+        }
+    }
+    Err(CoreError::NoThumbnail)
 }
 
 

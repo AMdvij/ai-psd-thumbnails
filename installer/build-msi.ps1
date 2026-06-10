@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Build the thumb-viewer MSI installer.
@@ -9,7 +9,7 @@
     3. Runs `wix build` to produce thumb-viewer-<version>.msi.
 
 .PARAMETER Version
-    Package version string (default: 0.1.1).  Must match the Version attribute in
+    Package version string (default: 0.1.2).  Must match the Version attribute in
     thumb-viewer.wxs.
 
 .PARAMETER OutDir
@@ -20,14 +20,14 @@
     .\installer\build-msi.ps1 -Version 0.2.0 -OutDir dist\
 #>
 param(
-    [string]$Version = "0.1.1",
+    [string]$Version = "0.1.2",
     [string]$OutDir  = $PSScriptRoot
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# ── Paths ────────────────────────────────────────────────────────────────────
+# â”€â”€ Paths â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 $RepoRoot    = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $PayloadDir  = Join-Path $PSScriptRoot "payload"
@@ -37,7 +37,7 @@ $ThumbDllSrc = Join-Path $TargetDir "thumb_viewer.dll"
 $CaExeSrc    = Join-Path $TargetDir "installer-ca.exe"
 $MsiOut      = Join-Path $OutDir "thumb-viewer-$Version.msi"
 
-# ── Validate prerequisites ────────────────────────────────────────────────────
+# â”€â”€ Validate prerequisites â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 Write-Host "==> Checking prerequisites..."
 
@@ -61,7 +61,7 @@ if (-not (Test-Path $PdfiumSrc)) {
     Write-Error "pdfium.dll not found at: $PdfiumSrc`nEnsure third_party\bin\pdfium.dll is present (bblanchon chromium/7763 win-x64)."
 }
 
-# ── Assemble payload ──────────────────────────────────────────────────────────
+# â”€â”€ Assemble payload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 Write-Host "==> Assembling payload in: $PayloadDir"
 New-Item -ItemType Directory -Path $PayloadDir -Force | Out-Null
@@ -75,7 +75,7 @@ Write-Host "    pdfium.dll        <- $PdfiumSrc"
 Copy-Item -Path $CaExeSrc    -Destination (Join-Path $PayloadDir "installer-ca.exe") -Force
 Write-Host "    installer-ca.exe  <- $CaExeSrc"
 
-# ── Run wix build ─────────────────────────────────────────────────────────────
+# â”€â”€ Run wix build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 $WxsSources = @(
     (Join-Path $PSScriptRoot "thumb-viewer.wxs")
@@ -109,3 +109,4 @@ Write-Host ""
 Write-Host "NOTE: Do not install this MSI during automated builds -- installation"
 Write-Host "      requires elevation and interactive registry verification."
 Write-Host "      See installer\README.md for manual installation test instructions."
+

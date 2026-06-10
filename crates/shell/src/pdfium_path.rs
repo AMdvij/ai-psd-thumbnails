@@ -15,9 +15,16 @@ use windows::Win32::System::LibraryLoader::GetModuleFileNameW;
 
 use crate::our_hmodule;
 
-/// Return the absolute path to pdfium.dll, or None if it cannot be determined.
-pub(crate) fn pdfium_dll_path() -> Option<PathBuf> {
-    // Prefer env override (dev/test).
+/// Return the DIRECTORY containing pdfium.dll, or None if it cannot be
+/// determined.
+///
+/// IMPORTANT: this must be a directory, not the DLL file path —
+/// `core::pdf::init` passes it to pdfium-render's
+/// `pdfium_platform_library_name_at_path`, which appends "pdfium.dll"
+/// itself. Passing a file path here makes the loader look for
+/// `...\pdfium.dll\pdfium.dll` and silently disables all PDF rendering.
+pub(crate) fn pdfium_dir() -> Option<PathBuf> {
+    // Prefer env override (dev/test) — a directory path.
     if let Ok(p) = std::env::var("PDFIUM_DLL_PATH") {
         return Some(PathBuf::from(p));
     }
@@ -33,20 +40,19 @@ pub(crate) fn pdfium_dll_path() -> Option<PathBuf> {
 
     let os = OsString::from_wide(&buf[..len as usize]);
     let our_path = PathBuf::from(os);
-    let dir = our_path.parent()?;
-    Some(dir.join("pdfium.dll"))
+    Some(our_path.parent()?.to_path_buf())
 }
 
-/// Initialise the pdfium singleton from the resolved path.
+/// Initialise the pdfium singleton from the resolved directory.
 /// No-op if pdfium was already initialised.  Silently skips if the DLL
 /// cannot be found (formats that don't need PDF rendering will still work).
 pub(crate) fn ensure_pdfium_init() {
-    let path = match pdfium_dll_path() {
-        Some(p) => p,
+    let dir = match pdfium_dir() {
+        Some(d) => d,
         None => return,
     };
-    let path_str = path.to_string_lossy();
-    if let Err(e) = thumb_viewer_core::pdf::init(&path_str) {
+    let dir_str = dir.to_string_lossy();
+    if let Err(e) = thumb_viewer_core::pdf::init(&dir_str) {
         log::warn!("pdfium init skipped: {e}");
     }
 }

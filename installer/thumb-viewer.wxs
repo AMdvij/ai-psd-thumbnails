@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <!--
   thumb-viewer MSI package root.
   Platform: x64, per-machine (ALLUSERS=1), WiX v4.
@@ -10,7 +10,7 @@
   <Package
       Name="thumb-viewer"
       Manufacturer="thumb-viewer contributors"
-      Version="0.1.1"
+      Version="0.1.2"
       UpgradeCode="F4B5BFA4-F277-4D9A-B8C2-7EF38B0357B9"
       Language="1033"
       Codepage="1252"
@@ -30,7 +30,7 @@
     <!--
       RestartManager: ask processes holding the DLL to release it on upgrade/uninstall.
       Uses the real WiX 4 util:RestartResource element (util:RestartResourceCleanup does
-      not exist — do not use it). Real-world effect on shell-extension DLLs is limited
+      not exist â€” do not use it). Real-world effect on shell-extension DLLs is limited
       (Explorer reloads handlers on demand; dllhost/prevhost surrogates are transient),
       but RM avoids a forced reboot in the common single-user case.
     -->
@@ -49,7 +49,7 @@
       <ComponentRef Id="CMP_RegClsidB_AppIdValue" />
       <ComponentRef Id="CMP_RegClsidB_DisplayName" />
 
-      <!-- Registry: per-extension SystemFileAssociations ShellEx (5 exts × 2 handlers = 10) -->
+      <!-- Registry: per-extension SystemFileAssociations ShellEx (5 exts Ã— 2 handlers = 10) -->
       <ComponentRef Id="CMP_RegShellEx_Ai_Thumb" />
       <ComponentRef Id="CMP_RegShellEx_Ai_Preview" />
       <ComponentRef Id="CMP_RegShellEx_Psd_Thumb" />
@@ -70,29 +70,29 @@
 
     <!--
       Custom action: CA_RestoreAiProgId
-        Type: BinaryRef + ExeCommand → MSI type 18 (run embedded exe with command line).
-        Execute: deferred — runs elevated (as SYSTEM / LocalSystem) inside the execute script,
+        Type: BinaryRef + ExeCommand â†’ MSI type 18 (run embedded exe with command line).
+        Execute: deferred â€” runs elevated (as SYSTEM / LocalSystem) inside the execute script,
                  which is required to write HKCR (= HKLM\SOFTWARE\Classes) on per-machine installs.
-        Impersonate: no — stays as SYSTEM; needed to write per-machine HKCR\.ai.
-        Return: check — non-zero exit aborts the install with an error.
-        Condition: NOT REMOVE — runs on install and repair, not on uninstall.
+        Impersonate: no â€” stays as SYSTEM; needed to write per-machine HKCR\.ai.
+        Return: check â€” non-zero exit aborts the install with an error.
+        Condition: NOT REMOVE â€” runs on install and repair, not on uninstall.
         The exe reads HKCR\.ai default; if it equals "SageThumbsImage.ai" (SageThumbs leftover)
         it restores it to "Adobe.Illustrator.28". Any other value is left untouched.
         Per-user leftovers in HKCU\Software\Classes\.ai or FileExts\.ai\UserChoice are
         out of scope (SYSTEM's HKCR view = HKLM\SOFTWARE\Classes only).
 
       Custom action: CA_NotifyAssocChanged
-        Type: BinaryRef + ExeCommand → MSI type 18.
-        Execute: commit — runs after the transaction commits, not rollback-able.
-        Impersonate: yes — MUST run in the user's interactive session so that
+        Type: BinaryRef + ExeCommand â†’ MSI type 18.
+        Execute: commit â€” runs after the transaction commits, not rollback-able.
+        Impersonate: yes â€” MUST run in the user's interactive session so that
                      SHChangeNotify(SHCNE_ASSOCCHANGED) broadcasts reach the running Explorer.
                      A deferred no-impersonate CA executes as SYSTEM in session 0; SHChangeNotify
-                     from session 0 only broadcasts within session 0 — the user's Explorer never
+                     from session 0 only broadcasts within session 0 â€” the user's Explorer never
                      receives it (silent no-op). Impersonation puts the CA in the user session.
-        Return: ignore — notification is best-effort; a failed broadcast is non-fatal.
+        Return: ignore â€” notification is best-effort; a failed broadcast is non-fatal.
                 (asyncNoWait is unsupported for in-script CAs; ignore is the correct choice.)
-        Condition: NOT REMOVE — runs on install and upgrade, not on uninstall.
-        Sequencing: Before="InstallFinalize" — commit CAs must be inside the
+        Condition: NOT REMOVE â€” runs on install and upgrade, not on uninstall.
+        Sequencing: Before="InstallFinalize" â€” commit CAs must be inside the
                     InstallInitialize..InstallFinalize window; After="InstallFinalize"
                     is illegal for in-script CAs (MSI error 2762).
     -->
@@ -128,7 +128,7 @@
         InstallInitialize and InstallFinalize (the commit script is written into the
         execute script; sequencing after InstallFinalize is invalid and causes error
         2762 or silent no-run depending on MSI engine version).
-        Return="ignore" — a missed notification is non-fatal; the host will refresh
+        Return="ignore" â€” a missed notification is non-fatal; the host will refresh
         associations on next Explorer restart.
       -->
       <Custom Action="CA_NotifyAssocChanged" Before="InstallFinalize" Condition="NOT REMOVE" />
@@ -136,7 +136,7 @@
 
   </Package>
 
-  <!-- ── Install directory layout ─────────────────────────────────────────────── -->
+  <!-- â”€â”€ Install directory layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 
   <Fragment>
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -144,12 +144,12 @@
     </StandardDirectory>
   </Fragment>
 
-  <!-- ── File components ──────────────────────────────────────────────────────── -->
+  <!-- â”€â”€ File components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 
   <Fragment>
     <ComponentGroup Id="CG_Files" Directory="INSTALLFOLDER">
 
-      <!-- thumb_viewer.dll — COM shell extension; KeyPath anchors the component -->
+      <!-- thumb_viewer.dll â€” COM shell extension; KeyPath anchors the component -->
       <Component Id="CMP_ThumbViewerDll" Guid="7D3A1C5E-4B82-4F9D-A1C3-8E6F2D0B9A47">
         <File Id="FILE_ThumbViewerDll"
               Name="thumb_viewer.dll"
@@ -157,7 +157,7 @@
               KeyPath="yes" />
       </Component>
 
-      <!-- pdfium.dll — must reside in the same directory as thumb_viewer.dll so that
+      <!-- pdfium.dll â€” must reside in the same directory as thumb_viewer.dll so that
            pdfium_path.rs GetModuleFileNameW sibling-path resolution finds it at runtime -->
       <Component Id="CMP_PdfiumDll" Guid="2A8F6E0D-1C94-4B7A-9D5E-3F0C1A2B8D46">
         <File Id="FILE_PdfiumDll"
@@ -169,7 +169,7 @@
     </ComponentGroup>
   </Fragment>
 
-  <!-- ── Install marker component ─────────────────────────────────────────────── -->
+  <!-- â”€â”€ Install marker component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 
   <Fragment>
     <Component Id="CMP_InstallMarker"
@@ -185,9 +185,10 @@
           Key="SOFTWARE\thumb-viewer"
           Name="Version"
           Type="string"
-          Value="0.1.1"
+          Value="0.1.2"
           KeyPath="yes" />
     </Component>
   </Fragment>
 
 </Wix>
+
