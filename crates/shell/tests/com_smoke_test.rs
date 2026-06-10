@@ -1,27 +1,47 @@
-//! COM smoke test: exercises the full factory → init → GetThumbnail pipeline.
+//! COM smoke test: exercises factory → init → GetThumbnail (CLSID-A) and
+//! factory → init → DoPreview → Unload (CLSID-B) pipelines.
 //!
-//! Loads thumb_viewer.dll directly (without registering it) by:
+//! CLSID-A (thumbnail) test sequence:
 //!   1. LoadLibraryW → our DLL
 //!   2. GetProcAddress("DllGetClassObject") → IClassFactory
 //!   3. IClassFactory::CreateInstance → IUnknown
 //!   4. QueryInterface for IInitializeWithStream
-//!   5. Initialize with an in-memory IStream from SHCreateMemStream
+//!   5. Initialize with an in-memory IStream from SHCreateMemStream (SVG)
 //!   6. QueryInterface for IThumbnailProvider
 //!   7. GetThumbnail(256) → assert non-null HBITMAP
 //!   8. Verify DllCanUnloadNow returns S_FALSE while object is live,
 //!      then S_OK after releasing all references.
 //!
+//! CLSID-B (preview) headless test sequence:
+//!   1. DllGetClassObject(CLSID-B) → IClassFactory
+//!   2. CreateInstance → IInitializeWithStream
+//!   3. Initialize with SVG stream
+//!   4. QueryInterface IPreviewHandler
+//!   5. SetWindow with a real HWND (parent desktop window used as parent)
+//!   6. DoPreview (creates child window, decodes, caches HBITMAP)
+//!   7. Unload (destroys child window, frees bitmap)
+//!   8. DllCanUnloadNow → S_OK after all references released.
+//!
 //! The test uses the release DLL (built by `cargo build --release`).
 
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use windows::core::{Interface, GUID, HRESULT, PCWSTR};
-use windows::Win32::Foundation::{FreeLibrary, HMODULE, S_FALSE, S_OK};
+use windows::Win32::Foundation::{FreeLibrary, HMODULE, RECT, S_FALSE, S_OK};
 use windows::Win32::Graphics::Gdi::{DeleteObject, HBITMAP};
 use windows::Win32::System::Com::IClassFactory;
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 use windows::Win32::UI::Shell::{SHCreateMemStream, IThumbnailProvider, WTSAT_ARGB};
 use windows::Win32::UI::Shell::PropertiesSystem::IInitializeWithStream;
+use windows::Win32::UI::WindowsAndMessaging::GetDesktopWindow;
+use windows::Win32::UI::Shell::IPreviewHandler;
+
+// Serialize all smoke tests so that OBJ_COUNT (a process-wide static in the DLL)
+// is not perturbed by a concurrent test when we assert DllCanUnloadNow == S_OK.
+// Both tests load the same cached DLL module; without this guard, test A might
+// hold a live COM object while test B checks S_OK and vice-versa.
+static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 /// CLSID_THUMB — must match factory.rs.
 const CLSID_THUMB: GUID = GUID::from_values(
@@ -29,6 +49,14 @@ const CLSID_THUMB: GUID = GUID::from_values(
     0x5F70,
     0x40BF,
     [0x88, 0x4E, 0x77, 0x54, 0x47, 0x97, 0xAD, 0x41],
+);
+
+/// CLSID_PREVIEW — must match factory.rs.
+const CLSID_PREVIEW: GUID = GUID::from_values(
+    0x2CFC1F9E,
+    0x0B23,
+    0x48C3,
+    [0xAE, 0x46, 0x29, 0x02, 0x52, 0x09, 0xD0, 0xD4],
 );
 
 /// IID_IClassFactory (known constant).
@@ -74,6 +102,8 @@ static SVG_BYTES: &[u8] =
 
 #[test]
 fn smoke_factory_init_get_thumbnail_svg() {
+    let _guard = TEST_LOCK.lock().unwrap();
+
     let path = dll_path();
     assert!(
         path.exists(),
@@ -172,6 +202,132 @@ fn smoke_factory_init_get_thumbnail_svg() {
     assert_eq!(
         can_unload, S_OK,
         "DllCanUnloadNow should return S_OK after all objects are released"
+    );
+
+    // ── Cleanup ────────────────────────────────────────────────────────────────
+    unsafe { let _ = FreeLibrary(hmodule); }
+}
+
+// ── PreviewProvider (CLSID-B) headless smoke test ─────────────────────────────
+
+/// Smoke test for the preview handler: DllGetClassObject(CLSID-B) →
+/// IClassFactory → CreateInstance → IInitializeWithStream::Initialize(SVG) →
+/// IPreviewHandler::SetWindow(desktop, rect) → DoPreview() → Unload().
+///
+/// DoPreview creates a real child HWND parented to the desktop; Unload
+/// destroys it.  This exercises the full lifecycle headlessly without
+/// requiring Explorer or prevhost.exe.
+#[test]
+fn smoke_preview_provider_init_do_preview_unload_svg() {
+    let _guard = TEST_LOCK.lock().unwrap();
+
+    let path = dll_path();
+    assert!(
+        path.exists(),
+        "Release DLL not found at {path:?}. Run `cargo build --release` first."
+    );
+
+    let path_str = path.to_string_lossy().into_owned();
+    let wide = wide_null(&path_str);
+
+    // ── Load DLL ──────────────────────────────────────────────────────────────
+    let hmodule: HMODULE = unsafe {
+        LoadLibraryW(PCWSTR(wide.as_ptr())).expect("LoadLibraryW failed")
+    };
+
+    // ── Resolve exports ───────────────────────────────────────────────────────
+    let proc = unsafe {
+        GetProcAddress(hmodule, windows::core::s!("DllGetClassObject"))
+            .expect("DllGetClassObject export not found")
+    };
+    let dll_get_class_object: DllGetClassObjectFn = unsafe { std::mem::transmute(proc) };
+
+    let can_unload_proc = unsafe {
+        GetProcAddress(hmodule, windows::core::s!("DllCanUnloadNow"))
+            .expect("DllCanUnloadNow export not found")
+    };
+    let dll_can_unload_now: DllCanUnloadNowFn = unsafe { std::mem::transmute(can_unload_proc) };
+
+    // ── Step 1: DllGetClassObject(CLSID-B) → IClassFactory ───────────────────
+    let factory: IClassFactory = {
+        let mut ppv: *mut std::ffi::c_void = std::ptr::null_mut();
+        let hr = unsafe {
+            dll_get_class_object(&CLSID_PREVIEW, &IID_ICLASSFACTORY, &mut ppv)
+        };
+        assert!(hr.is_ok(), "DllGetClassObject(CLSID-B) failed: {hr:?}");
+        assert!(!ppv.is_null());
+        unsafe { IClassFactory::from_raw(ppv) }
+    };
+
+    // ── Step 2: CreateInstance → IInitializeWithStream ────────────────────────
+    let init_stream: IInitializeWithStream = unsafe {
+        factory.CreateInstance(None).expect("CreateInstance(PreviewProvider) failed")
+    };
+
+    // ── Step 3: Initialize with SVG stream ────────────────────────────────────
+    let stream = unsafe {
+        SHCreateMemStream(Some(SVG_BYTES)).expect("SHCreateMemStream returned null")
+    };
+    unsafe {
+        init_stream
+            .Initialize(&stream, 0)
+            .expect("IInitializeWithStream::Initialize(preview) failed");
+    }
+
+    // ── Step 4: QueryInterface IPreviewHandler ────────────────────────────────
+    let preview_handler: IPreviewHandler = init_stream
+        .cast()
+        .expect("QueryInterface IPreviewHandler failed");
+    drop(init_stream);
+
+    // ── Step 5: SetWindow — use desktop window as parent ──────────────────────
+    // GetDesktopWindow() returns a system-owned HWND that is always valid;
+    // parenting to it is safe for a headless test window.
+    let desktop_hwnd = unsafe { GetDesktopWindow() };
+    let bounds = RECT { left: 0, top: 0, right: 200, bottom: 200 };
+    unsafe {
+        preview_handler
+            .SetWindow(desktop_hwnd, &bounds)
+            .expect("IPreviewHandler::SetWindow failed");
+    }
+
+    // ── Step 6: DoPreview — creates child HWND, decodes SVG, caches HBITMAP ──
+    unsafe {
+        preview_handler
+            .DoPreview()
+            .expect("IPreviewHandler::DoPreview failed");
+    }
+
+    // ── Step 7: SetRect — reposition (resize handling) ───────────────────────
+    let new_bounds = RECT { left: 0, top: 0, right: 300, bottom: 300 };
+    unsafe {
+        preview_handler
+            .SetRect(&new_bounds)
+            .expect("IPreviewHandler::SetRect failed");
+    }
+
+    // ── Step 8: Unload — destroys child HWND, frees HBITMAP ──────────────────
+    unsafe {
+        preview_handler
+            .Unload()
+            .expect("IPreviewHandler::Unload failed");
+    }
+
+    // ── Step 9: DllCanUnloadNow lifecycle check ───────────────────────────────
+    // preview_handler + factory still held → cannot unload.
+    let can_unload = unsafe { dll_can_unload_now() };
+    assert_eq!(
+        can_unload, S_FALSE,
+        "DllCanUnloadNow should be S_FALSE while PreviewProvider is live"
+    );
+
+    drop(preview_handler);
+    drop(factory);
+
+    let can_unload = unsafe { dll_can_unload_now() };
+    assert_eq!(
+        can_unload, S_OK,
+        "DllCanUnloadNow should be S_OK after all PreviewProvider references released"
     );
 
     // ── Cleanup ────────────────────────────────────────────────────────────────

@@ -1,12 +1,18 @@
 //! DllRegisterServer / DllUnregisterServer — write / delete Shell registry keys.
 //!
 //! Registration invariants (anti-SageThumbs):
-//!   - Writes ONLY to:
-//!       HKCR\CLSID\{CLSID-A}\InprocServer32         (DLL path + ThreadingModel)
-//!       HKCR\SystemFileAssociations\.<ext>\ShellEx\{e357fccd-...}  (5 exts)
-//!   - NEVER touches HKCR\.<ext> default value, ProgID, or OpenWith.
-//!   - ThreadingModel = "Apartment" (STA); pdfium process-wide serialisation
-//!     is provided by pdfium-render's `thread_safe` feature.
+//!   Writes ONLY to our own keys:
+//!     HKCR\CLSID\{CLSID-A}\InprocServer32         (thumbnail; DLL path + ThreadingModel)
+//!     HKCR\CLSID\{CLSID-B}\InprocServer32         (preview; DLL path + ThreadingModel)
+//!     HKCR\CLSID\{CLSID-B}  AppID named value     (= {6d2b5079-...} prevhost surrogate)
+//!     HKCR\SystemFileAssociations\.<ext>\ShellEx\{e357fccd-...}   (thumbnail, 5 exts)
+//!     HKCR\SystemFileAssociations\.<ext>\shellex\{8895b1c6-...}   (preview, 5 exts)
+//!     HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\PreviewHandlers  (preview display name)
+//!   NEVER creates, overwrites, or deletes:
+//!     HKCR\AppID\{6d2b5079-2f0b-48dd-ab7f-97cec514d30b}  — OS-owned prevhost key.
+//!       Touching it would break every preview handler machine-wide.
+//!   NEVER touches HKCR\.<ext> default value, ProgID, or OpenWith.
+//!   ThreadingModel = "Apartment" (STA) for both CLSIDs.
 //!
 //! DllRegisterServer / DllUnregisterServer are invoked by dev-register.ps1
 //! (via regsvr32).  Production registration is the MSI's responsibility.
@@ -14,17 +20,34 @@
 use windows::core::{HRESULT, PCWSTR};
 use windows::Win32::Foundation::{ERROR_SUCCESS, S_OK};
 use windows::Win32::System::Registry::{
-    RegCloseKey, RegCreateKeyW, RegDeleteKeyW, RegSetValueExW,
-    HKEY, HKEY_CLASSES_ROOT, REG_SZ,
+    RegCloseKey, RegCreateKeyW, RegDeleteKeyW, RegOpenKeyExW, RegSetValueExW,
+    HKEY, HKEY_CLASSES_ROOT, HKEY_LOCAL_MACHINE, KEY_SET_VALUE, REG_SZ,
 };
 
-use crate::factory::CLSID_THUMB;
+use crate::factory::{CLSID_PREVIEW, CLSID_THUMB};
 
-/// System-defined thumbnail handler ShellEx sub-key GUID.
+// ── Shell-extension GUIDs (Windows-defined, fixed) ────────────────────────────
+
+/// Thumbnail handler ShellEx sub-key GUID.
 const THUMB_SHELLEXT_GUID: &str = "{e357fccd-a995-4576-b01f-234630154e96}";
+
+/// Preview handler ShellEx sub-key GUID.
+const PREVIEW_SHELLEXT_GUID: &str = "{8895b1c6-b41f-4c1c-a562-0d564250836f}";
+
+/// AppID value to set on CLSID-B key — points to the OS-owned prevhost surrogate.
+/// We only SET this as a named VALUE on our CLSID-B key; we NEVER create or
+/// delete the HKCR\AppID\{...} key itself.
+const PREVHOST_APPID: &str = "{6d2b5079-2f0b-48dd-ab7f-97cec514d30b}";
 
 /// File extensions to register.
 const EXTS: &[&str] = &[".ai", ".psd", ".psb", ".eps", ".svg"];
+
+/// Preview handler display name shown in the Windows PreviewHandlers list.
+const PREVIEW_DISPLAY_NAME: &str = "thumb-viewer Preview";
+
+/// Registry path for the system preview-handlers list (HKLM).
+const PREVIEW_HANDLERS_KEY: &str =
+    "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\PreviewHandlers";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -48,10 +71,22 @@ fn wide_bytes_sz(s: &str) -> Vec<u8> {
 }
 
 /// Open-or-create a key under HKCR.  Caller must RegCloseKey the result.
-unsafe fn create_key(subkey: &str) -> Result<HKEY, HRESULT> {
+unsafe fn create_key_hkcr(subkey: &str) -> Result<HKEY, HRESULT> {
     let w = wide_null(subkey);
     let mut hkey = HKEY::default();
     let rc = unsafe { RegCreateKeyW(HKEY_CLASSES_ROOT, PCWSTR(w.as_ptr()), &mut hkey) };
+    if rc == ERROR_SUCCESS {
+        Ok(hkey)
+    } else {
+        Err(win32_to_hresult(rc.0))
+    }
+}
+
+/// Open-or-create a key under HKLM.  Caller must RegCloseKey the result.
+unsafe fn create_key_hklm(subkey: &str) -> Result<HKEY, HRESULT> {
+    let w = wide_null(subkey);
+    let mut hkey = HKEY::default();
+    let rc = unsafe { RegCreateKeyW(HKEY_LOCAL_MACHINE, PCWSTR(w.as_ptr()), &mut hkey) };
     if rc == ERROR_SUCCESS {
         Ok(hkey)
     } else {
@@ -76,10 +111,10 @@ unsafe fn set_default(hkey: HKEY, value: &str) -> Result<(), HRESULT> {
 
 /// Delete a registry key under HKCR (non-recursive; must have no subkeys).
 /// Missing keys are silently ignored (idempotent).
-unsafe fn delete_key(subkey: &str) -> Result<(), HRESULT> {
+unsafe fn delete_key_hkcr(subkey: &str) -> Result<(), HRESULT> {
     let w = wide_null(subkey);
     let rc = unsafe { RegDeleteKeyW(HKEY_CLASSES_ROOT, PCWSTR(w.as_ptr())) };
-    // ERROR_FILE_NOT_FOUND (2) = already absent — treat as success for idempotency.
+    // 2 = ERROR_FILE_NOT_FOUND — already absent, treat as success.
     if rc == ERROR_SUCCESS || rc.0 == 2 {
         Ok(())
     } else {
@@ -87,24 +122,63 @@ unsafe fn delete_key(subkey: &str) -> Result<(), HRESULT> {
     }
 }
 
+/// Delete a named value from a key under HKLM.
+/// Missing value is silently ignored (idempotent).
+unsafe fn delete_value_hklm(subkey: &str, value_name: &str) -> Result<(), HRESULT> {
+    let wkey = wide_null(subkey);
+    let mut hkey = HKEY::default();
+    let rc = unsafe {
+        RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            PCWSTR(wkey.as_ptr()),
+            None,
+            KEY_SET_VALUE,
+            &mut hkey,
+        )
+    };
+    // ERROR_FILE_NOT_FOUND (2) — key absent, nothing to delete.
+    if rc.0 == 2 {
+        return Ok(());
+    }
+    if rc != ERROR_SUCCESS {
+        return Err(win32_to_hresult(rc.0));
+    }
+
+    let wname = wide_null(value_name);
+    let rc2 = unsafe {
+        windows::Win32::System::Registry::RegDeleteValueW(hkey, PCWSTR(wname.as_ptr()))
+    };
+    unsafe { let _ = RegCloseKey(hkey); }
+
+    // ERROR_FILE_NOT_FOUND (2) — value absent, treat as success.
+    if rc2 == ERROR_SUCCESS || rc2.0 == 2 {
+        Ok(())
+    } else {
+        Err(win32_to_hresult(rc2.0))
+    }
+}
+
 // ── CLSID string formatting ───────────────────────────────────────────────────
 
-fn clsid_string() -> String {
-    let d = &CLSID_THUMB;
+fn format_clsid(d: &windows::core::GUID) -> String {
     format!(
         "{{{:08X}-{:04X}-{:04X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}}}",
-        d.data1,
-        d.data2,
-        d.data3,
-        d.data4[0],
-        d.data4[1],
-        d.data4[2],
-        d.data4[3],
-        d.data4[4],
-        d.data4[5],
-        d.data4[6],
-        d.data4[7],
+        d.data1, d.data2, d.data3,
+        d.data4[0], d.data4[1],
+        d.data4[2], d.data4[3], d.data4[4], d.data4[5], d.data4[6], d.data4[7],
     )
+}
+
+fn clsid_thumb_string() -> String { format_clsid(&CLSID_THUMB) }
+fn clsid_preview_string() -> String { format_clsid(&CLSID_PREVIEW) }
+
+// ── DLL path resolution ───────────────────────────────────────────────────────
+
+fn dll_path_string() -> String {
+    crate::pdfium_path::pdfium_dll_path()
+        .and_then(|p| p.parent().map(|d| d.join("thumb_viewer.dll")))
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "thumb_viewer.dll".to_owned())
 }
 
 // ── DllRegisterServer ─────────────────────────────────────────────────────────
@@ -118,18 +192,14 @@ pub extern "system" fn DllRegisterServer() -> HRESULT {
 }
 
 fn register_impl() -> Result<(), HRESULT> {
-    let clsid = clsid_string();
+    let dll_path = dll_path_string();
+    let clsid_a = clsid_thumb_string();
+    let clsid_b = clsid_preview_string();
 
-    // Resolve our DLL path from the stored HMODULE.
-    let dll_path = crate::pdfium_path::pdfium_dll_path()
-        .and_then(|p| p.parent().map(|d| d.join("thumb_viewer.dll")))
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "thumb_viewer.dll".to_owned());
-
-    // HKCR\CLSID\{CLSID-A}\InprocServer32
-    let inproc_path = format!("CLSID\\{}\\InprocServer32", clsid);
+    // ── Thumbnail: HKCR\CLSID\{A}\InprocServer32 ─────────────────────────────
+    let inproc_a = format!("CLSID\\{}\\InprocServer32", clsid_a);
     unsafe {
-        let hkey = create_key(&inproc_path)?;
+        let hkey = create_key_hkcr(&inproc_a)?;
         let r1 = set_default(hkey, &dll_path);
         let r2 = set_sz(hkey, "ThreadingModel", "Apartment");
         let _ = RegCloseKey(hkey);
@@ -137,18 +207,66 @@ fn register_impl() -> Result<(), HRESULT> {
         r2?;
     }
 
-    // HKCR\SystemFileAssociations\.<ext>\ShellEx\{thumbnail-handler-guid}
+    // ── Thumbnail: HKCR\SystemFileAssociations\.<ext>\ShellEx\{thumb-guid} ───
     for ext in EXTS {
         let key_path = format!(
             "SystemFileAssociations\\{}\\ShellEx\\{}",
             ext, THUMB_SHELLEXT_GUID
         );
         unsafe {
-            let hkey = create_key(&key_path)?;
-            let r = set_default(hkey, &clsid);
+            let hkey = create_key_hkcr(&key_path)?;
+            let r = set_default(hkey, &clsid_a);
             let _ = RegCloseKey(hkey);
             r?;
         }
+    }
+
+    // ── Preview: HKCR\CLSID\{B} — set AppID named value (prevhost surrogate) ─
+    // We only set the AppID VALUE on our own CLSID-B key.
+    // We NEVER create or modify HKCR\AppID\{6d2b5079-...} — that is OS-owned.
+    let clsid_b_key = format!("CLSID\\{}", clsid_b);
+    unsafe {
+        let hkey = create_key_hkcr(&clsid_b_key)?;
+        let r1 = set_sz(hkey, "AppID", PREVHOST_APPID);
+        let r2 = set_sz(hkey, "", "thumb-viewer Preview"); // optional display name
+        let _ = RegCloseKey(hkey);
+        r1?;
+        r2?;
+    }
+
+    // ── Preview: HKCR\CLSID\{B}\InprocServer32 — Apartment threading ─────────
+    let inproc_b = format!("CLSID\\{}\\InprocServer32", clsid_b);
+    unsafe {
+        let hkey = create_key_hkcr(&inproc_b)?;
+        let r1 = set_default(hkey, &dll_path);
+        let r2 = set_sz(hkey, "ThreadingModel", "Apartment");
+        let _ = RegCloseKey(hkey);
+        r1?;
+        r2?;
+    }
+
+    // ── Preview: HKCR\SystemFileAssociations\.<ext>\shellex\{preview-guid} ───
+    for ext in EXTS {
+        let key_path = format!(
+            "SystemFileAssociations\\{}\\shellex\\{}",
+            ext, PREVIEW_SHELLEXT_GUID
+        );
+        unsafe {
+            let hkey = create_key_hkcr(&key_path)?;
+            let r = set_default(hkey, &clsid_b);
+            let _ = RegCloseKey(hkey);
+            r?;
+        }
+    }
+
+    // ── Preview: HKLM PreviewHandlers list ───────────────────────────────────
+    // Adds our CLSID-B as a named value so it appears in the Windows
+    // "Preview Handlers" management list.
+    unsafe {
+        let hkey = create_key_hklm(PREVIEW_HANDLERS_KEY)?;
+        let r = set_sz(hkey, &clsid_b, PREVIEW_DISPLAY_NAME);
+        let _ = RegCloseKey(hkey);
+        r?;
     }
 
     Ok(())
@@ -165,23 +283,43 @@ pub extern "system" fn DllUnregisterServer() -> HRESULT {
 }
 
 fn unregister_impl() -> Result<(), HRESULT> {
-    let clsid = clsid_string();
+    let clsid_a = clsid_thumb_string();
+    let clsid_b = clsid_preview_string();
 
-    // Remove per-extension ShellEx subkeys (leaves parent ShellEx key intact).
+    // ── Thumbnail: per-ext ShellEx values ────────────────────────────────────
     for ext in EXTS {
         let key_path = format!(
             "SystemFileAssociations\\{}\\ShellEx\\{}",
             ext, THUMB_SHELLEXT_GUID
         );
-        unsafe { delete_key(&key_path)?; }
+        unsafe { delete_key_hkcr(&key_path)?; }
     }
 
-    // Remove InprocServer32 then the CLSID container key.
-    let inproc_path = format!("CLSID\\{}\\InprocServer32", clsid);
-    unsafe { delete_key(&inproc_path)?; }
+    // ── Thumbnail: InprocServer32 then CLSID container ────────────────────────
+    let inproc_a = format!("CLSID\\{}\\InprocServer32", clsid_a);
+    unsafe { delete_key_hkcr(&inproc_a)?; }
+    let clsid_a_key = format!("CLSID\\{}", clsid_a);
+    unsafe { delete_key_hkcr(&clsid_a_key)?; }
 
-    let clsid_path = format!("CLSID\\{}", clsid);
-    unsafe { delete_key(&clsid_path)?; }
+    // ── Preview: per-ext shellex values ──────────────────────────────────────
+    for ext in EXTS {
+        let key_path = format!(
+            "SystemFileAssociations\\{}\\shellex\\{}",
+            ext, PREVIEW_SHELLEXT_GUID
+        );
+        unsafe { delete_key_hkcr(&key_path)?; }
+    }
+
+    // ── Preview: InprocServer32 then CLSID container ──────────────────────────
+    // NOTE: we NEVER delete HKCR\AppID\{6d2b5079-...} — that is OS-owned.
+    // We only delete our own CLSID-B subtree.
+    let inproc_b = format!("CLSID\\{}\\InprocServer32", clsid_b);
+    unsafe { delete_key_hkcr(&inproc_b)?; }
+    let clsid_b_key = format!("CLSID\\{}", clsid_b);
+    unsafe { delete_key_hkcr(&clsid_b_key)?; }
+
+    // ── Preview: HKLM PreviewHandlers list entry ──────────────────────────────
+    unsafe { delete_value_hklm(PREVIEW_HANDLERS_KEY, &clsid_b)?; }
 
     Ok(())
 }

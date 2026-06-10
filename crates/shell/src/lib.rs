@@ -1,7 +1,11 @@
-//! thumb_viewer.dll — COM in-process thumbnail provider.
+//! thumb_viewer.dll — COM in-process thumbnail + preview shell extension.
 //!
 //! Exports: DllGetClassObject, DllCanUnloadNow, DllRegisterServer, DllUnregisterServer.
-//! Implements IThumbnailProvider + IInitializeWithStream for .ai/.psd/.psb/.eps/.svg.
+//! Implements:
+//!   IThumbnailProvider + IInitializeWithStream (ThumbProvider, CLSID-A)
+//!   IPreviewHandler + IInitializeWithStream + IObjectWithSite + IOleWindow
+//!     (PreviewProvider, CLSID-B)
+//! Formats: .ai / .psd / .psb / .eps / .svg
 
 #![cfg(target_os = "windows")]
 
@@ -12,7 +16,10 @@ extern crate windows_core;
 pub(crate) mod bitmap;
 pub(crate) mod factory;
 pub(crate) mod pdfium_path;
+pub(crate) mod preview;
+pub(crate) mod preview_window;
 pub(crate) mod register;
+pub(crate) mod stream_util;
 pub(crate) mod thumbnail;
 
 use std::sync::OnceLock;
