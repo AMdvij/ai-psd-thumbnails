@@ -63,16 +63,34 @@ fn decode_ps_ai(data: &[u8]) -> Result<DecodedImage, CoreError> {
 /// <hex digits ...>
 /// %%EndData
 /// ```
+///
+/// The `%%BeginData:` marker is only searched AFTER the `%AI_Thumbnail` header,
+/// preventing accidental matches against other `%%BeginData` blocks earlier in
+/// the file (embedded fonts, images, etc.) that would produce garbage JPEG input.
+/// If no `%AI_Thumbnail` header is present the function returns `Ok(None)`
+/// (clean NoThumbnail fall-through), not a decode error.
+/// If the JPEG data is present but cannot be decoded, the function also returns
+/// `Ok(None)` rather than propagating the error, allowing the caller to try
+/// subsequent strategies (gs-fallback / NoThumbnail) instead of failing hard.
 fn extract_ai_thumbnail(data: &[u8]) -> Result<Option<DecodedImage>, CoreError> {
     // Work with the file as a UTF-8 lossy string for line scanning.
     // Files are ASCII PS, so this is safe.
     let text = std::str::from_utf8(data).unwrap_or("");
 
+    let thumbnail_header = "%AI_Thumbnail:";
     let begin_marker = "%%BeginData:";
     let end_marker = "%%EndData";
 
-    let begin_pos = match text.find(begin_marker) {
+    // Locate the %AI_Thumbnail header first; if absent there is no thumbnail.
+    let ai_thumb_pos = match text.find(thumbnail_header) {
         Some(p) => p,
+        None => return Ok(None),
+    };
+
+    // Search for %%BeginData: ONLY in the text that follows %AI_Thumbnail.
+    let search_from = ai_thumb_pos + thumbnail_header.len();
+    let begin_pos = match text[search_from..].find(begin_marker) {
+        Some(rel) => search_from + rel,
         None => return Ok(None),
     };
 
@@ -110,14 +128,21 @@ fn extract_ai_thumbnail(data: &[u8]) -> Result<Option<DecodedImage>, CoreError> 
         return Ok(None);
     }
 
-    // Decode the JPEG.
+    // Decode the JPEG.  Treat JPEG decode failures as Ok(None) — the hex data
+    // may be corrupt, but that should not prevent the caller from falling through
+    // to gs-fallback or NoThumbnail rather than surfacing a hard decode error.
     let mut decoder = jpeg_decoder::Decoder::new(jpeg_bytes.as_slice());
-    let pixels = decoder
-        .decode()
-        .map_err(|e| CoreError::Decode(format!("AI_Thumbnail JPEG: {e}")))?;
-    let info = decoder
-        .info()
-        .ok_or_else(|| CoreError::Decode("AI_Thumbnail: no JPEG info".into()))?;
+    let pixels = match decoder.decode() {
+        Ok(p) => p,
+        Err(e) => {
+            log::debug!("AI_Thumbnail JPEG decode failed (treating as absent): {e}");
+            return Ok(None);
+        }
+    };
+    let info = match decoder.info() {
+        Some(i) => i,
+        None => return Ok(None),
+    };
 
     let rgba = jpeg_pixels_to_rgba(&pixels, info.pixel_format);
     Ok(Some(DecodedImage {

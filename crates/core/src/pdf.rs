@@ -4,10 +4,14 @@
 //! pdfium-render wraps every FFI call in a global mutex, providing process-wide
 //! call serialization required because multiple STA threads can share this instance.
 //!
+//! Initialization is serialized by a `Mutex` to prevent a race between two concurrent
+//! first-decode calls: `pdfium_render::Pdfium::new` asserts (panics) if bindings are
+//! already set internally, so the check-then-set window must be held under a lock.
+//!
 //! The pdfium.dll path is supplied via the `PDFIUM_DLL_PATH` environment variable
 //! (tests) or injected by the shell crate at startup (co-located with the DLL).
 
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use pdfium_render::prelude::*;
 
@@ -17,19 +21,36 @@ use crate::{CoreError, DecodedImage};
 
 static PDFIUM: OnceLock<Pdfium> = OnceLock::new();
 
+/// Serializes the bind+set window so two concurrent first-callers cannot both
+/// see `PDFIUM.get().is_none()` and both try `Pdfium::new` (which would panic
+/// on the second attempt because pdfium-render 0.9.1 asserts BINDINGS unset).
+static INIT_LOCK: Mutex<()> = Mutex::new(());
+
 /// Initialise the pdfium singleton from a DLL path.
 ///
-/// Safe to call multiple times; subsequent calls with a different path are ignored
-/// (the first bind wins for the lifetime of the process).
+/// Safe to call multiple times from multiple threads; the first bind wins.
+/// Subsequent calls are no-ops regardless of the path supplied.
 pub fn init(dll_path: &str) -> Result<(), CoreError> {
+    // Fast path: already initialised (avoids lock contention on all subsequent calls).
     if PDFIUM.get().is_some() {
         return Ok(());
     }
+
+    // Slow path: hold the init lock across the entire check-bind-set sequence.
+    // This guarantees only one thread calls `Pdfium::new`, which would panic if
+    // called twice (pdfium-render 0.9.1 asserts its internal BINDINGS is empty).
+    let _guard = INIT_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+
+    // Re-check after acquiring the lock; another thread may have finished first.
+    if PDFIUM.get().is_some() {
+        return Ok(());
+    }
+
     let bindings = Pdfium::bind_to_library(
         Pdfium::pdfium_platform_library_name_at_path(dll_path),
     )
     .map_err(|e| CoreError::Pdf(format!("bind pdfium at {dll_path:?}: {e}")))?;
-    // `set` returns Err if another thread already initialised; both outcomes are fine.
+    // `set` returns Err if another thread already initialised; treat both as success.
     let _ = PDFIUM.set(Pdfium::new(bindings));
     Ok(())
 }
@@ -46,6 +67,7 @@ fn ensure_init() -> Result<(), CoreError> {
         Err(_) => Err(CoreError::NoThumbnail),
     }
 }
+
 
 // ── Public render API ─────────────────────────────────────────────────────────
 

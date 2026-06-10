@@ -55,26 +55,36 @@ impl Drop for ThumbProvider {
 
 impl IInitializeWithStream_Impl for ThumbProvider_Impl {
     fn Initialize(&self, pstream: Ref<IStream>, _grfmode: u32) -> WinResult<()> {
-        // Reject second initialization — shell should not call this twice, but guard anyway.
-        {
-            let guard = self.bytes.borrow();
-            if guard.is_some() {
-                // HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED) = 0x800704DF
-                return Err(windows::core::Error::from_hresult(
-                    HRESULT(0x800704DFu32 as i32),
-                ));
+        let result = catch_unwind(AssertUnwindSafe(|| -> WinResult<()> {
+            // Reject second initialization — shell should not call this twice, but guard anyway.
+            {
+                let guard = self.bytes.borrow();
+                if guard.is_some() {
+                    // HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED) = 0x800704DF
+                    return Err(windows::core::Error::from_hresult(
+                        HRESULT(0x800704DFu32 as i32),
+                    ));
+                }
+            } // borrow dropped here
+
+            // Ref<IStream>::ok() yields &IStream or E_POINTER if null.
+            let stream: &IStream = pstream.ok().map_err(|_| {
+                windows::core::Error::from_hresult(E_UNEXPECTED)
+            })?;
+
+            // Drain the stream using the shared helper (DRY — same logic as preview).
+            let data = read_stream_all(stream)?;
+            *self.bytes.borrow_mut() = Some(data);
+            Ok(())
+        }));
+
+        match result {
+            Ok(r) => r,
+            Err(_panic) => {
+                log::error!("panic in ThumbProvider::Initialize");
+                Err(windows::core::Error::from_hresult(E_FAIL))
             }
-        } // borrow dropped here
-
-        // Ref<IStream>::ok() yields &IStream or E_POINTER if null.
-        let stream: &IStream = pstream.ok().map_err(|_| {
-            windows::core::Error::from_hresult(E_UNEXPECTED)
-        })?;
-
-        // Drain the stream using the shared helper (DRY — same logic as preview).
-        let data = read_stream_all(stream)?;
-        *self.bytes.borrow_mut() = Some(data);
-        Ok(())
+        }
     }
 }
 
@@ -102,12 +112,14 @@ impl IThumbnailProvider_Impl for ThumbProvider_Impl {
             // guard drops here — borrow released before any decode work
         };
 
-        // Initialise pdfium if not yet done (no-op after first call; skips if DLL absent).
-        ensure_pdfium_init();
-
         // Wrap the borrow-free decode body in catch_unwind.
-        // A panic in any decoder is caught and returned as E_FAIL.
+        // A panic in any decoder (including pdfium init) is caught and returned as E_FAIL.
+        // ensure_pdfium_init is called INSIDE catch_unwind so any panic it raises
+        // is contained here rather than escaping across the COM vtable boundary.
         let result = catch_unwind(AssertUnwindSafe(|| -> Result<(HBITMAP, WTS_ALPHATYPE), HRESULT> {
+            // Initialise pdfium if not yet done (no-op after first call; skips if DLL absent).
+            ensure_pdfium_init();
+
             let ext = detect_ext_from_bytes(&owned_bytes).ok_or(E_FAIL)?;
 
             let decoded = decode_thumbnail(&owned_bytes, ext, cx).map_err(|e| {

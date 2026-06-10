@@ -78,8 +78,8 @@ Write-Host "    installer-ca.exe  <- $CaExeSrc"
 # ── Run wix build ─────────────────────────────────────────────────────────────
 
 $WxsSources = @(
-    Join-Path $PSScriptRoot "thumb-viewer.wxs",
-    Join-Path $PSScriptRoot "registry-shellex.wxs"
+    (Join-Path $PSScriptRoot "thumb-viewer.wxs")
+    (Join-Path $PSScriptRoot "registry-shellex.wxs")
 )
 
 Write-Host "==> Building MSI: $MsiOut"
@@ -106,6 +106,6 @@ try {
 Write-Host ""
 Write-Host "==> MSI built successfully: $MsiOut"
 Write-Host ""
-Write-Host "NOTE: Do not install this MSI during automated builds — installation"
+Write-Host "NOTE: Do not install this MSI during automated builds -- installation"
 Write-Host "      requires elevation and interactive registry verification."
 Write-Host "      See installer\README.md for manual installation test instructions."

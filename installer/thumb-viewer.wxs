@@ -89,8 +89,12 @@
                      A deferred no-impersonate CA executes as SYSTEM in session 0; SHChangeNotify
                      from session 0 only broadcasts within session 0 — the user's Explorer never
                      receives it (silent no-op). Impersonation puts the CA in the user session.
-        Return: asyncNoWait — fire-and-forget; a failed notification is non-fatal.
+        Return: ignore — notification is best-effort; a failed broadcast is non-fatal.
+                (asyncNoWait is unsupported for in-script CAs; ignore is the correct choice.)
         Condition: NOT REMOVE — runs on install and upgrade, not on uninstall.
+        Sequencing: Before="InstallFinalize" — commit CAs must be inside the
+                    InstallInitialize..InstallFinalize window; After="InstallFinalize"
+                    is illegal for in-script CAs (MSI error 2762).
     -->
 
     <Binary Id="InstallerCaBin" SourceFile="payload\installer-ca.exe" />
@@ -109,7 +113,7 @@
         ExeCommand="notify-assoc-changed"
         Execute="commit"
         Impersonate="yes"
-        Return="asyncNoWait" />
+        Return="ignore" />
 
     <InstallExecuteSequence>
       <!--
@@ -119,10 +123,15 @@
       <Custom Action="CA_RestoreAiProgId" After="WriteRegistryValues" Condition="NOT REMOVE" />
 
       <!--
-        CA_NotifyAssocChanged: commit, impersonated, after InstallFinalize so it runs
-        after all registry and file operations are committed to the system.
+        CA_NotifyAssocChanged: commit, impersonated, sequenced BEFORE InstallFinalize.
+        MSI rule: deferred/rollback/commit CAs must be sequenced between
+        InstallInitialize and InstallFinalize (the commit script is written into the
+        execute script; sequencing after InstallFinalize is invalid and causes error
+        2762 or silent no-run depending on MSI engine version).
+        Return="ignore" — a missed notification is non-fatal; the host will refresh
+        associations on next Explorer restart.
       -->
-      <Custom Action="CA_NotifyAssocChanged" After="InstallFinalize" Condition="NOT REMOVE" />
+      <Custom Action="CA_NotifyAssocChanged" Before="InstallFinalize" Condition="NOT REMOVE" />
     </InstallExecuteSequence>
 
   </Package>

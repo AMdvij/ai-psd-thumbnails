@@ -31,11 +31,15 @@ pub(crate) fn read_stream_all(stream: &IStream) -> windows::core::Result<Vec<u8>
         };
 
         if cb_read > 0 {
-            let total = data.len() + cb_read as usize;
+            // Clamp cb_read to the actual chunk buffer size: a buggy or hostile
+            // IStream implementation may report more bytes read than the buffer
+            // can hold, which would cause a slice panic.
+            let cb = (cb_read as usize).min(READ_CHUNK as usize);
+            let total = data.len() + cb;
             if total > MAX_STREAM_BYTES {
                 return Err(windows::core::Error::from_hresult(E_FAIL));
             }
-            data.extend_from_slice(&chunk[..cb_read as usize]);
+            data.extend_from_slice(&chunk[..cb]);
         }
 
         // S_OK (0) means more data may follow; S_FALSE (1) means end-of-stream.

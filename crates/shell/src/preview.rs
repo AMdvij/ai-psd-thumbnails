@@ -184,6 +184,20 @@ impl IPreviewHandler_Impl for PreviewProvider_Impl {
                 return Err(windows::core::Error::from_hresult(E_UNEXPECTED));
             }
 
+            // Idempotency guard: if a child window already exists from a previous
+            // DoPreview call (misbehaving host or retry), destroy it before creating
+            // a new one.  Dropping the window_state Box while the old HWND still has
+            // its GWLP_USERDATA pointing at it would be a use-after-free.
+            let existing_child = self.child_hwnd.get();
+            if !existing_child.is_invalid() {
+                // Clear the HWND cell first so Drop sees null and won't double-destroy.
+                self.child_hwnd.set(HWND::default());
+                // destroy_preview_child clears GWLP_USERDATA before DestroyWindow.
+                destroy_preview_child(existing_child);
+                // Release the old state Box only after the window is gone.
+                *self.window_state.borrow_mut() = None;
+            }
+
             // Clone bytes out — drop borrow before any decode or Win32 call.
             let owned_bytes: Vec<u8> = {
                 let guard = self.bytes.borrow();

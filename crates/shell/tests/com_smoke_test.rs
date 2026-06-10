@@ -143,10 +143,10 @@ fn smoke_factory_init_get_thumbnail_svg() {
         unsafe { IClassFactory::from_raw(ppv) }
     };
 
-    // IClassFactory alone does not increment the object counter; DllCanUnloadNow
-    // may return S_OK at this point (factory is stateless, not counted).
-    // The ownership-transfer test below (S_FALSE while ThumbProvider is live,
-    // S_OK after release) is the authoritative DllCanUnloadNow leak check.
+    // IClassFactory IS counted in OBJ_COUNT (increment in Factory::new_counted,
+    // decrement in Factory::Drop).  DllCanUnloadNow must therefore return S_FALSE
+    // while the factory reference is live.  The final S_OK assertion after
+    // drop(factory) below verifies that the factory count is properly released.
 
     // ── Step 4: CreateInstance → IInitializeWithStream ────────────────────────
     // windows-rs high-level CreateInstance is type-parameterized: it calls
@@ -331,5 +331,93 @@ fn smoke_preview_provider_init_do_preview_unload_svg() {
     );
 
     // ── Cleanup ────────────────────────────────────────────────────────────────
+    unsafe { let _ = FreeLibrary(hmodule); }
+}
+
+/// Verify that calling DoPreview a second time on the same PreviewProvider
+/// does not crash or use-after-free.  A misbehaving host may retry DoPreview;
+/// the second call must safely replace the first preview window.
+#[test]
+fn smoke_preview_do_preview_idempotent() {
+    let _guard = TEST_LOCK.lock().unwrap();
+
+    let path = dll_path();
+    assert!(
+        path.exists(),
+        "Release DLL not found at {path:?}. Run `cargo build --release` first."
+    );
+
+    let path_str = path.to_string_lossy().into_owned();
+    let wide = wide_null(&path_str);
+
+    let hmodule: HMODULE = unsafe {
+        LoadLibraryW(PCWSTR(wide.as_ptr())).expect("LoadLibraryW failed")
+    };
+
+    let proc = unsafe {
+        GetProcAddress(hmodule, windows::core::s!("DllGetClassObject"))
+            .expect("DllGetClassObject export not found")
+    };
+    let dll_get_class_object: DllGetClassObjectFn = unsafe { std::mem::transmute(proc) };
+
+    let can_unload_proc = unsafe {
+        GetProcAddress(hmodule, windows::core::s!("DllCanUnloadNow"))
+            .expect("DllCanUnloadNow export not found")
+    };
+    let dll_can_unload_now: DllCanUnloadNowFn = unsafe { std::mem::transmute(can_unload_proc) };
+
+    let factory: IClassFactory = {
+        let mut ppv: *mut std::ffi::c_void = std::ptr::null_mut();
+        let hr = unsafe { dll_get_class_object(&CLSID_PREVIEW, &IID_ICLASSFACTORY, &mut ppv) };
+        assert!(hr.is_ok(), "DllGetClassObject(CLSID-B) failed: {hr:?}");
+        unsafe { IClassFactory::from_raw(ppv) }
+    };
+
+    // Factory is counted in OBJ_COUNT — DLL cannot unload while factory is live.
+    let can_unload = unsafe { dll_can_unload_now() };
+    assert_eq!(can_unload, S_FALSE, "DllCanUnloadNow should be S_FALSE while factory is held");
+
+    let init_stream: IInitializeWithStream = unsafe {
+        factory.CreateInstance(None).expect("CreateInstance failed")
+    };
+
+    let stream = unsafe {
+        SHCreateMemStream(Some(SVG_BYTES)).expect("SHCreateMemStream returned null")
+    };
+    unsafe {
+        init_stream.Initialize(&stream, 0).expect("Initialize failed");
+    }
+
+    let preview_handler: IPreviewHandler = init_stream.cast().expect("QI IPreviewHandler failed");
+    drop(init_stream);
+
+    let desktop_hwnd = unsafe { GetDesktopWindow() };
+    let bounds = RECT { left: 0, top: 0, right: 200, bottom: 200 };
+    unsafe {
+        preview_handler.SetWindow(desktop_hwnd, &bounds).expect("SetWindow failed");
+    }
+
+    // First DoPreview call.
+    unsafe {
+        preview_handler.DoPreview().expect("First DoPreview failed");
+    }
+
+    // Second DoPreview call — must not crash or use-after-free.
+    // The implementation destroys the old child window before creating a new one.
+    unsafe {
+        preview_handler.DoPreview().expect("Second DoPreview failed (idempotency check)");
+    }
+
+    unsafe {
+        preview_handler.Unload().expect("Unload after second DoPreview failed");
+    }
+
+    drop(preview_handler);
+    drop(factory);
+
+    // All objects released — DLL may now unload.
+    let can_unload = unsafe { dll_can_unload_now() };
+    assert_eq!(can_unload, S_OK, "DllCanUnloadNow should be S_OK after all objects released");
+
     unsafe { let _ = FreeLibrary(hmodule); }
 }

@@ -49,8 +49,11 @@ pub const CLSID_PREVIEW: GUID = GUID::from_values(
 
 // ── Global COM counters ───────────────────────────────────────────────────────
 
-/// Count of live COM data objects (ThumbProvider + PreviewProvider).
-/// Incremented in their respective new(), decremented in Drop.
+/// Count of live COM objects managed by this DLL: ThumbProvider, PreviewProvider,
+/// and Factory instances.  DllCanUnloadNow returns S_FALSE while this is non-zero
+/// or while LockServer calls are outstanding.
+/// Incremented in ThumbProvider::new(), PreviewProvider::new(), and Factory::new_counted();
+/// decremented in their respective Drop impls.
 pub(crate) static OBJ_COUNT: AtomicI32 = AtomicI32::new(0);
 
 /// Count of outstanding IClassFactory::LockServer(TRUE) calls.
@@ -69,6 +72,21 @@ enum FactoryKind {
 #[implement(IClassFactory)]
 pub(crate) struct Factory {
     kind: FactoryKind,
+}
+
+impl Factory {
+    /// Construct a Factory and count it in OBJ_COUNT so DllCanUnloadNow
+    /// returns S_FALSE while any IClassFactory reference is outstanding.
+    fn new_counted(kind: FactoryKind) -> Self {
+        OBJ_COUNT.fetch_add(1, Ordering::SeqCst);
+        Self { kind }
+    }
+}
+
+impl Drop for Factory {
+    fn drop(&mut self) {
+        OBJ_COUNT.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 impl IClassFactory_Impl for Factory_Impl {
@@ -130,7 +148,7 @@ pub extern "system" fn DllGetClassObject(
             return CLASS_E_CLASSNOTAVAILABLE;
         };
 
-        let factory = Factory { kind };
+        let factory = Factory::new_counted(kind);
         let cf: IClassFactory = factory.into();
         cf.query(riid, ppv)
     }

@@ -17,8 +17,12 @@
 //! DllRegisterServer / DllUnregisterServer are invoked by dev-register.ps1
 //! (via regsvr32).  Production registration is the MSI's responsibility.
 
+use std::ffi::OsString;
+use std::os::windows::ffi::OsStringExt;
+
 use windows::core::{HRESULT, PCWSTR};
 use windows::Win32::Foundation::{ERROR_SUCCESS, S_OK};
+use windows::Win32::System::LibraryLoader::GetModuleFileNameW;
 use windows::Win32::System::Registry::{
     RegCloseKey, RegCreateKeyW, RegDeleteKeyW, RegOpenKeyExW, RegSetValueExW,
     HKEY, HKEY_CLASSES_ROOT, HKEY_LOCAL_MACHINE, KEY_SET_VALUE, REG_SZ,
@@ -174,11 +178,29 @@ fn clsid_preview_string() -> String { format_clsid(&CLSID_PREVIEW) }
 
 // ── DLL path resolution ───────────────────────────────────────────────────────
 
-fn dll_path_string() -> String {
-    crate::pdfium_path::pdfium_dll_path()
-        .and_then(|p| p.parent().map(|d| d.join("thumb_viewer.dll")))
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "thumb_viewer.dll".to_owned())
+/// Derive the absolute path of this DLL from the HMODULE stored at load time.
+///
+/// Using GetModuleFileNameW on our own HMODULE is the only reliable way to get
+/// the path we were loaded from: it is independent of the working directory,
+/// the PDFIUM_DLL_PATH environment override (a dev/test hook), and any fallback
+/// that might produce a relative path.  A relative "thumb_viewer.dll" in
+/// InprocServer32 would break COM activation for any working directory other
+/// than the install folder.
+fn dll_path_string() -> Result<String, HRESULT> {
+    let hmodule = crate::our_hmodule().ok_or_else(|| {
+        log::error!("DllRegisterServer: HMODULE not available (DllMain not called?)");
+        windows::Win32::Foundation::E_FAIL
+    })?;
+
+    let mut buf = vec![0u16; 32768];
+    let len = unsafe { GetModuleFileNameW(Some(hmodule), &mut buf) };
+    if len == 0 {
+        log::error!("DllRegisterServer: GetModuleFileNameW returned 0");
+        return Err(windows::Win32::Foundation::E_FAIL);
+    }
+
+    let os = OsString::from_wide(&buf[..len as usize]);
+    Ok(os.to_string_lossy().into_owned())
 }
 
 // ── DllRegisterServer ─────────────────────────────────────────────────────────
@@ -192,7 +214,7 @@ pub extern "system" fn DllRegisterServer() -> HRESULT {
 }
 
 fn register_impl() -> Result<(), HRESULT> {
-    let dll_path = dll_path_string();
+    let dll_path = dll_path_string()?;
     let clsid_a = clsid_thumb_string();
     let clsid_b = clsid_preview_string();
 

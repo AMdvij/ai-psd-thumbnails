@@ -47,7 +47,7 @@ COM entry points (`DllGetClassObject`, `DllCanUnloadNow`, `DllRegisterServer`,
 ## Test
 
 ```powershell
-cargo test --workspace --exclude installer-ca     # 39 tests; exclusion is REQUIRED
+cargo test --workspace --exclude installer-ca     # exclusion is REQUIRED
 cargo run -p thumb-viewer-core --example dump -- assets/test-files/sample.svg out.png 256
 ```
 
@@ -123,6 +123,8 @@ OS-owned and shared by every preview handler on the machine.
 
 ## Feature flags
 
-- `gs-fallback` (crates/core, off by default): renders previewless EPS / old EPS-style `.ai`
-  by dynamically loading `gsdll64.dll` at runtime. Ghostscript is AGPL — it is NOT bundled,
-  NOT linked, and the MSI never installs it; the feature only uses a copy the user already has.
+- `gs-fallback` (crates/core, off by default): **stub — the feature flag compiles but the
+  Ghostscript render path is not yet implemented** (`gs.rs` always returns `NoThumbnail`).
+  When fully implemented it will render previewless EPS / old EPS-style `.ai` by dynamically
+  loading `gsdll64.dll` at runtime. Ghostscript is AGPL — it must NOT be bundled, linked, or
+  installed by the MSI; the feature will only use a copy the user already has.

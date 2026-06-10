@@ -152,6 +152,17 @@ fn read_thumbnail_jpeg(cur: &mut Cursor<&[u8]>, data_len: u64) -> Result<Vec<u8>
     if data_len < 28 {
         return Err(CoreError::Decode("thumbnail resource too short".into()));
     }
+
+    // Validate data_len against the number of bytes actually remaining in the
+    // buffer before allocating.  A hostile length field can otherwise cause a
+    // multi-gigabyte zero-fill before read_exact fails with an I/O error.
+    let remaining = cur.get_ref().len() as u64 - cur.position();
+    if data_len > remaining {
+        return Err(CoreError::Decode(
+            "thumbnail resource length exceeds remaining file data".into(),
+        ));
+    }
+
     // 28-byte header: format(4) + width(4) + height(4) + widthbytes(4) +
     //                 totalsize(4) + compressedsize(4) + bitsperpixel(2) + planes(2)
     cur.seek(SeekFrom::Current(28)).map_err(io_err)?;
@@ -167,7 +178,9 @@ fn decode_jpeg_rgb(jpeg: &[u8]) -> Result<DecodedImage, CoreError> {
     let mut dec = jpeg_decoder::Decoder::new(jpeg);
     let pixels = dec.decode().map_err(|e| CoreError::Decode(format!("JPEG 1036: {e}")))?;
     let info = dec.info().ok_or_else(|| CoreError::Decode("JPEG 1036: no info".into()))?;
-    let rgba = rgb24_to_rgba(&pixels);
+    // Use the format-aware converter to handle grayscale and other non-RGB24
+    // layouts without panicking on chunks_exact(3) for non-3-byte-per-pixel data.
+    let rgba = jpeg_pixels_to_rgba_psd(&pixels, info.pixel_format);
     Ok(DecodedImage { width: info.width as u32, height: info.height as u32, rgba })
 }
 
@@ -175,16 +188,61 @@ fn decode_jpeg_bgr(jpeg: &[u8]) -> Result<DecodedImage, CoreError> {
     let mut dec = jpeg_decoder::Decoder::new(jpeg);
     let pixels = dec.decode().map_err(|e| CoreError::Decode(format!("JPEG 1033: {e}")))?;
     let info = dec.info().ok_or_else(|| CoreError::Decode("JPEG 1033: no info".into()))?;
-    // BGR → RGB swap, then add alpha.
-    let rgba: Vec<u8> = pixels
-        .chunks_exact(3)
-        .flat_map(|p| [p[2], p[1], p[0], 255])
-        .collect();
+    // Legacy BGR format from resource 1033: swap B↔R on top of any format conversion.
+    let rgba = jpeg_pixels_to_rgba_psd(&pixels, info.pixel_format);
+    // For RGB24 the conversion already produced RGBA; swap R↔B channels.
+    // For non-RGB24 formats (grayscale etc.) the BGR swap is a no-op/identical.
+    if info.pixel_format == jpeg_decoder::PixelFormat::RGB24 {
+        let swapped: Vec<u8> = rgba
+            .chunks_exact(4)
+            .flat_map(|p| [p[2], p[1], p[0], p[3]])
+            .collect();
+        return Ok(DecodedImage { width: info.width as u32, height: info.height as u32, rgba: swapped });
+    }
     Ok(DecodedImage { width: info.width as u32, height: info.height as u32, rgba })
 }
 
-fn rgb24_to_rgba(pixels: &[u8]) -> Vec<u8> {
-    pixels.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect()
+/// Convert jpeg-decoder pixel output to RGBA, handling all pixel formats
+/// produced by jpeg-decoder so that non-RGB24 thumbnails (e.g. grayscale)
+/// do not panic inside chunks_exact(3).
+fn jpeg_pixels_to_rgba_psd(pixels: &[u8], fmt: jpeg_decoder::PixelFormat) -> Vec<u8> {
+    use jpeg_decoder::PixelFormat;
+    match fmt {
+        PixelFormat::RGB24 => pixels
+            .chunks_exact(3)
+            .flat_map(|p| [p[0], p[1], p[2], 255])
+            .collect(),
+        PixelFormat::L8 => pixels
+            .iter()
+            .flat_map(|&g| [g, g, g, 255])
+            .collect(),
+        PixelFormat::L16 => pixels
+            .chunks_exact(2)
+            .flat_map(|p| {
+                let g = p[0]; // high byte as approximation
+                [g, g, g, 255]
+            })
+            .collect(),
+        PixelFormat::CMYK32 => pixels
+            .chunks_exact(4)
+            .flat_map(|p| {
+                let c = p[0] as f32 / 255.0;
+                let m = p[1] as f32 / 255.0;
+                let y = p[2] as f32 / 255.0;
+                let k = p[3] as f32 / 255.0;
+                let r = ((1.0 - c) * (1.0 - k) * 255.0) as u8;
+                let g = ((1.0 - m) * (1.0 - k) * 255.0) as u8;
+                let b = ((1.0 - y) * (1.0 - k) * 255.0) as u8;
+                [r, g, b, 255]
+            })
+            .collect(),
+        #[allow(unreachable_patterns)]
+        _ => {
+            // Unknown future pixel format: return a single opaque grey pixel
+            // rather than panicking on an incorrect chunks_exact stride.
+            vec![128u8, 128u8, 128u8, 255u8]
+        }
+    }
 }
 
 // ── Composite pixel data fallback ─────────────────────────────────────────────
@@ -275,7 +333,22 @@ fn decode_rle_composite(
     let n_planes = channels.min(4) as usize;
     let total_rows = (height as usize) * n_planes;
 
-    // Read row byte-count table.
+    // Read row byte-count table.  The count table itself must fit in the
+    // remaining bytes before we try to allocate any per-row buffers.
+    let table_bytes = if is_psb {
+        total_rows.checked_mul(4)
+    } else {
+        total_rows.checked_mul(2)
+    }
+    .ok_or_else(|| CoreError::Decode("RLE row-count table overflow".into()))?;
+
+    let remaining_at_table = (cur.get_ref().len() as u64).saturating_sub(cur.position()) as usize;
+    if table_bytes > remaining_at_table {
+        return Err(CoreError::Decode(
+            "RLE row-count table exceeds remaining file data".into(),
+        ));
+    }
+
     let mut row_byte_counts: Vec<u32> = Vec::with_capacity(total_rows);
     for _ in 0..total_rows {
         let count = if is_psb {
@@ -293,9 +366,26 @@ fn decode_rle_composite(
         let mut decoded = Vec::with_capacity(plane_size);
         for row in 0..height as usize {
             let byte_count = row_byte_counts[plane * height as usize + row] as usize;
+
+            // Validate each row's compressed byte count against remaining data
+            // before allocating the row buffer.  A hostile count can otherwise
+            // cause a multi-gigabyte allocation before read_exact fails.
+            let remaining = (cur.get_ref().len() as u64).saturating_sub(cur.position()) as usize;
+            if byte_count > remaining {
+                return Err(CoreError::Decode(
+                    "RLE row byte-count exceeds remaining file data".into(),
+                ));
+            }
+
             let mut rle = vec![0u8; byte_count];
             cur.read_exact(&mut rle).map_err(io_err)?;
-            packbits_decode(&rle, &mut decoded)?;
+            // Cap output at the bytes still missing from this plane, not the
+            // full plane size: the cap is measured from each call's entry
+            // length, so passing plane_size on every row would let a crafted
+            // file grow the buffer by up to a plane per ROW (rows × plane_size
+            // total) instead of one plane per plane.
+            let remaining_cap = plane_size.saturating_sub(decoded.len());
+            packbits_decode(&rle, &mut decoded, remaining_cap)?;
         }
         if decoded.len() < plane_size {
             return Err(CoreError::Decode("RLE decoded data too short".into()));
@@ -309,9 +399,23 @@ fn decode_rle_composite(
 }
 
 /// PackBits decompression (Mac/PSD RLE).
-fn packbits_decode(input: &[u8], output: &mut Vec<u8>) -> Result<(), CoreError> {
+///
+/// `max_output` is a hard cap on the number of bytes written to `output`
+/// (measured from the current length on entry).  Once `max_output` bytes have
+/// been appended, further runs are silently dropped and the function returns
+/// successfully — the caller truncates to the expected plane size afterward.
+/// This prevents a crafted repeat-run sequence from driving unbounded Vec growth
+/// (a single PackBits repeat token can expand ~64×; without a cap a small
+/// compressed file could exhaust process memory).
+fn packbits_decode(input: &[u8], output: &mut Vec<u8>, max_output: usize) -> Result<(), CoreError> {
+    let start_len = output.len();
     let mut i = 0;
     while i < input.len() {
+        // Stop early once the cap is reached; the caller will truncate/check.
+        if output.len() - start_len >= max_output {
+            break;
+        }
+
         let header = input[i] as i8;
         i += 1;
         if header >= 0 {
@@ -320,7 +424,9 @@ fn packbits_decode(input: &[u8], output: &mut Vec<u8>) -> Result<(), CoreError> 
             if i + count > input.len() {
                 return Err(CoreError::Decode("PackBits: literal overrun".into()));
             }
-            output.extend_from_slice(&input[i..i + count]);
+            let allowed = max_output.saturating_sub(output.len() - start_len);
+            let copy = count.min(allowed);
+            output.extend_from_slice(&input[i..i + copy]);
             i += count;
         } else if header != -128 {
             // Repeat run: copy the next byte (-header + 1) times.
@@ -330,7 +436,9 @@ fn packbits_decode(input: &[u8], output: &mut Vec<u8>) -> Result<(), CoreError> 
             }
             let byte = input[i];
             i += 1;
-            for _ in 0..count {
+            let allowed = max_output.saturating_sub(output.len() - start_len);
+            let copy = count.min(allowed);
+            for _ in 0..copy {
                 output.push(byte);
             }
         }
@@ -391,7 +499,7 @@ mod tests {
         // Header 0x02 = literal run of 3 bytes.
         let input = [0x02u8, 0xAA, 0xBB, 0xCC];
         let mut out = Vec::new();
-        packbits_decode(&input, &mut out).unwrap();
+        packbits_decode(&input, &mut out, usize::MAX).unwrap();
         assert_eq!(out, [0xAA, 0xBB, 0xCC]);
     }
 
@@ -400,8 +508,20 @@ mod tests {
         // Header 0xFE = -2 as i8 → repeat next byte 3 times.
         let input = [0xFEu8, 0x55];
         let mut out = Vec::new();
-        packbits_decode(&input, &mut out).unwrap();
+        packbits_decode(&input, &mut out, usize::MAX).unwrap();
         assert_eq!(out, [0x55, 0x55, 0x55]);
+    }
+
+    #[test]
+    fn packbits_output_cap_prevents_amplification() {
+        // Header 0x80 = -128 as i8 = NOP; 0xFE = repeat next byte 3 times.
+        // Without a cap a large repeat run could grow the output unboundedly.
+        // Cap at 2 bytes: only the first 2 of 3 repeated bytes should appear.
+        let input = [0xFEu8, 0xAB]; // would produce [0xAB, 0xAB, 0xAB]
+        let mut out = Vec::new();
+        packbits_decode(&input, &mut out, 2).unwrap();
+        assert_eq!(out.len(), 2);
+        assert_eq!(out, [0xAB, 0xAB]);
     }
 
     #[test]
@@ -416,5 +536,44 @@ mod tests {
         let data = b"8BPS\x00\x01\x00\x00";
         let result = decode(data, Ext::Psd);
         assert!(matches!(result, Err(CoreError::Decode(_) | CoreError::Io(_))));
+    }
+
+    #[test]
+    fn hostile_thumbnail_length_rejected() {
+        // Construct a minimal PSD header + Image Resources section with a
+        // resource 1036 whose data_len claims far more bytes than the file
+        // actually contains.  This must return a decode error, not OOM.
+        //
+        // PSD header: 4 sig + 2 version + 6 reserved + 14 header = 26 bytes
+        // Color Mode Data: 4-byte length = 0
+        // Image Resources: 4-byte section length + 8BIM + resource_id + name + data_len
+        let mut data: Vec<u8> = Vec::new();
+        // File header
+        data.extend_from_slice(b"8BPS");    // sig
+        data.extend_from_slice(&[0, 1]);    // version = 1 (PSD)
+        data.extend_from_slice(&[0u8; 6]); // reserved
+        data.extend_from_slice(&[0, 3]);    // channels = 3
+        data.extend_from_slice(&[0, 0, 0, 8]); // height = 8
+        data.extend_from_slice(&[0, 0, 0, 8]); // width = 8
+        data.extend_from_slice(&[0, 8]);    // depth = 8
+        data.extend_from_slice(&[0, 3]);    // color_mode = RGB
+        // Color Mode Data (length = 0)
+        data.extend_from_slice(&[0, 0, 0, 0]);
+        // Image Resources section: compute a resource with hostile data_len
+        let mut ir: Vec<u8> = Vec::new();
+        ir.extend_from_slice(b"8BIM");      // resource signature
+        ir.extend_from_slice(&[0x04, 0x0C]); // resource_id = 1036 (0x040C)
+        ir.extend_from_slice(&[0, 0]);      // pascal name (empty, even-padded)
+        ir.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]); // hostile data_len = u32::MAX
+        // Embed only 4 dummy bytes (far less than data_len claims).
+        ir.extend_from_slice(&[0u8; 4]);
+        let ir_len = ir.len() as u32;
+        data.extend_from_slice(&ir_len.to_be_bytes());
+        data.extend(ir);
+        let result = decode(&data, Ext::Psd);
+        assert!(
+            matches!(result, Err(CoreError::Decode(_) | CoreError::NoThumbnail | CoreError::Io(_))),
+            "expected error for hostile data_len, got: {result:?}"
+        );
     }
 }

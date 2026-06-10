@@ -6,3 +6,5 @@ out-*.*
 *.wixpdb
 /.wix/
 installer/decompiled.wxs
+build.log
+clippy.txt
