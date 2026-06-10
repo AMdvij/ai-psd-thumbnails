@@ -1,0 +1,51 @@
+[package]
+name = "thumb-viewer-core"
+version = "0.1.0"
+edition = "2021"
+
+# No windows/Win32 dependencies — keeps this crate cross-testable and fast to compile.
+
+[features]
+# Feature-gated Ghostscript fallback for EPS/old-AI without embedded preview.
+# Dynamically loads gsdll64.dll; AGPL — NOT bundled with the MSI.
+gs-fallback = ["dep:libloading"]
+
+[dependencies]
+# Error handling
+thiserror = "1"
+
+# Logging (no-op without a subscriber)
+log = "0.4"
+
+# PDF rendering via pdfium.
+# DEVIATION: plan specified "0.9.2" but that version does not exist (max is 0.9.1 as of 2026-06-10).
+# pdfium_7763 feature confirmed present in 0.9.1 (introduced in 0.9.1 release notes).
+# thread_safe feature confirmed present (wraps every FFI call in a global mutex).
+# bblanchon pdfium-binaries tag: chromium/7763, win-x64.
+pdfium-render = { version = "0.9.1", default-features = false, features = [
+    "pdfium_7763",
+    "thread_safe",
+    "image_025",
+] }
+
+# SVG rendering — pure Rust, no native dependencies
+resvg = "0.44"
+usvg = "0.44"
+tiny-skia = "0.11"
+
+# JPEG decoding for PSD resource 1036/1033 embedded thumbnails
+jpeg-decoder = "0.3"
+
+# TIFF decoding for DOS-EPS embedded previews
+tiff = "0.9"
+
+# Optional Ghostscript dynamic loading
+libloading = { version = "0.8", optional = true }
+
+[dev-dependencies]
+# PNG output for the dump example and test assertions
+image = "0.25"
+
+[[example]]
+name = "dump"
+path = "examples/dump.rs"
