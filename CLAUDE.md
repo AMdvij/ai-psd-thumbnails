@@ -1,0 +1,128 @@
+# thumb-viewer
+
+Windows Explorer thumbnail + preview-pane shell extension for `.ai .psd .psb .eps .svg`,
+written in Rust (windows-rs), shipped as a per-machine x64 MSI. Design rationale lives in
+`plans/260610-1131-thumb-viewer-shell-extension/`; this file is the operational reference.
+
+## Architecture
+
+```
+crates/core          thumb-viewer-core   — pure decode/render, NO Win32 (unit-testable)
+crates/shell         thumb-viewer-shell  — cdylib `thumb_viewer.dll`, COM in-proc server
+crates/installer-ca  installer-ca        — MSI custom-action exe (2 verbs, see Installer)
+installer/           WiX v4 authoring + build script
+scripts/             dev register/unregister/cache-clear (elevated PowerShell)
+third_party/bin/     pdfium.dll (bundled binary, see Pin below)
+```
+
+COM objects (both `ThreadingModel=Apartment`):
+
+| Object | CLSID | Interfaces |
+|---|---|---|
+| Thumbnail provider | `{90E3822E-5F70-40BF-884E-77544797AD41}` | IThumbnailProvider, IInitializeWithStream |
+| Preview handler | `{2CFC1F9E-0B23-48C3-AE46-29025209D0D4}` | IPreviewHandler, IInitializeWithStream, IObjectWithSite, IOleWindow |
+
+Format → render path:
+
+| Format | Fast path | Fallback |
+|---|---|---|
+| `.psd` | resource 1036 embedded JPEG thumb (RGB; 1033 = old BGR) | flattened composite |
+| `.psb` | same (Image Resources section layout identical to PSD) | composite (RLE counts widen to 4 bytes) |
+| `.ai` (PDF-style) | pdfium page-1 render | — |
+| `.ai` (EPS-style) | none | `gs-fallback` feature only |
+| `.eps` | DOS-EPS embedded TIFF preview | `gs-fallback` feature only |
+| `.svg` | resvg/usvg (external hrefs disabled, dims capped) | — |
+
+## Build
+
+```powershell
+cargo build -p thumb-viewer-core                  # decode lib only
+cargo build -p thumb-viewer-shell --release       # → target/release/thumb_viewer.dll
+```
+
+Target: `x86_64-pc-windows-msvc` (x64 only). The shell crate links `exports.def` so the four
+COM entry points (`DllGetClassObject`, `DllCanUnloadNow`, `DllRegisterServer`,
+`DllUnregisterServer`) export undecorated.
+
+## Test
+
+```powershell
+cargo test --workspace --exclude installer-ca     # 39 tests; exclusion is REQUIRED
+cargo run -p thumb-viewer-core --example dump -- assets/test-files/sample.svg out.png 256
+```
+
+- `--exclude installer-ca` is mandatory: the CA binary has an elevation manifest, so the test
+  harness fails with OS error 740 trying to spawn it (it has no tests anyway).
+- PDF-path tests need `pdfium.dll`; they skip gracefully when it can't be loaded. Override the
+  search path with `PDFIUM_DLL_PATH=<dir>` (default: beside the executable, then
+  `third_party/bin/`). Note: pdfium loads from PowerShell-launched processes; bash-launched
+  test runs may fail `LoadLibraryExW` (error 126) — use PowerShell.
+
+## Dev register / unregister (elevated PowerShell)
+
+```powershell
+scripts/dev-register.ps1      # copies pdfium.dll beside the DLL, then regsvr32 thumb_viewer.dll
+scripts/dev-unregister.ps1
+scripts/clear-thumb-cache.ps1 # kills dllhost/prevhost, clears thumbcache_*.db, restarts Explorer
+```
+
+Dev-loop gotchas:
+- Explorer/dllhost/prevhost hold the DLL after first use — unregister + run
+  `clear-thumb-cache.ps1` before rebuilding, or the linker fails with a locked-file error.
+- The thumbnail cache masks changes: after re-registering, test with **freshly named copies**
+  of fixture files, not ones Explorer has already thumbnailed.
+- Verify OUR handler actually ran (not a cached/built-in one): Process Monitor filter on
+  `dllhost.exe` / `prevhost.exe` loading `thumb_viewer.dll`.
+
+## pdfium pin (exact, supply-chain-relevant)
+
+| What | Value |
+|---|---|
+| Crate | `pdfium-render = "0.9.1"`, features `pdfium_7763`, `thread_safe`, `image_025` (plan said 0.9.2 — does not exist) |
+| Binary | bblanchon `pdfium-binaries` tag `chromium/7763` (pdfium 148.0.7763.0), win-x64 |
+| URL | https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F7763 |
+| `pdfium.dll` SHA256 | `A63949DC46A7314BBA619AC6CC1B3849627E137F542AE31B2B36B302841F77AE` |
+
+Contract: pdfium is bound **once per process** (`OnceLock`) and every pdfium call is serialized
+process-wide via the crate's `thread_safe` feature (global FFI mutex). STA apartment threading
+does NOT make this safe by itself — Explorer's surrogate runs multiple concurrent STA threads
+against the shared instance. If you bump the crate, the `pdfium_XXXX` feature and the binary
+tag must move together; record the new SHA256 here.
+
+## MSI
+
+```powershell
+installer/build-msi.ps1       # assembles installer/payload/ + wix build → thumb-viewer-<ver>.msi
+```
+
+- WiX **4.0.6** via `dotnet tool install --global wix --version 4.0.6` (WiX ≥5 needs .NET 8;
+  this machine has .NET 6) + `wix extension add --global WixToolset.Util.wixext/4.0.6`.
+- Per-machine (HKLM, x64), MajorUpgrade enabled. Bundles `thumb_viewer.dll`, `pdfium.dll`,
+  `installer-ca.exe` into `Program Files\thumb-viewer\`.
+- Custom actions (`installer-ca.exe`): `restore-ai-progid` (deferred, no-impersonate —
+  restores `.ai` → `Adobe.Illustrator.28` if a SageThumbs leftover hijacked it) and
+  `notify-assoc-changed` (commit, **impersonated** — `SHChangeNotify` from session 0 is a
+  silent no-op).
+- Uninstall removes only our keys (declarative components). Install testing requires elevation:
+  see `installer/README.md` for the manual test matrix.
+
+## Registry contract (do not violate)
+
+Everything we write lives in association-neutral locations; we NEVER touch a default ProgID,
+file association, or OpenWith entry. `.ai` stays `Adobe.Illustrator.28`.
+
+| Key | Value |
+|---|---|
+| `HKCR\SystemFileAssociations\.<ext>\ShellEx\{e357fccd-a995-4576-b01f-234630154e96}` | thumbnail CLSID |
+| `HKCR\SystemFileAssociations\.<ext>\shellex\{8895b1c6-b41f-4c1c-a562-0d564250836f}` | preview CLSID |
+| `HKCR\CLSID\{our two CLSIDs}` | InprocServer32, `ThreadingModel=Apartment` |
+| `AppID` named **value** on preview CLSID | `{6d2b5079-2f0b-48dd-ab7f-97cec514d30b}` (prevhost) |
+
+NEVER author, modify, or delete the `HKCR\AppID\{6d2b5079-...}` **key** itself — it is
+OS-owned and shared by every preview handler on the machine.
+
+## Feature flags
+
+- `gs-fallback` (crates/core, off by default): renders previewless EPS / old EPS-style `.ai`
+  by dynamically loading `gsdll64.dll` at runtime. Ghostscript is AGPL — it is NOT bundled,
+  NOT linked, and the MSI never installs it; the feature only uses a copy the user already has.
