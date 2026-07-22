@@ -12,6 +12,12 @@ If this project helps you, consider buying me a coffee. Thank you!
 
 <p align="center"><b>LÂM HIỀN TÂM</b> - MoMo · VietQR · napas 247</p>
 
+## 🤖 How this was built
+
+This project was built in a single one-shot loop skill (brainstorm, plan, cook, review) powered by **AgentKit Engineer**.
+
+Get 50% off here: https://agentkit.best/engineer?ref=EPU2ZB5U
+
 ---
 
 Windows Explorer thumbnails & preview pane for **Adobe Illustrator (.ai)**, **Photoshop (.psd/.psb)**, **EPS** and **SVG** files, without installing any Adobe software.
