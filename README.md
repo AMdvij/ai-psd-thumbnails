@@ -14,9 +14,9 @@ If this project helps you, consider buying me a coffee. Thank you!
 
 ## 🤖 How this was built
 
-This project was built in a single one-shot loop skill (brainstorm, plan, cook, review) powered by **AgentKit Engineer**.
+This entire project, a Rust COM shell extension with an MSI installer, was shipped in **one shot** by an autonomous loop skill (brainstorm → plan → cook → review), powered by **[AgentKit Engineer](https://agentkit.best/engineer?ref=EPU2ZB5U)**.
 
-Get 50% off here: https://agentkit.best/engineer?ref=EPU2ZB5U
+Want the same workflow? [**Get AgentKit Engineer with 50% off**](https://agentkit.best/engineer?ref=EPU2ZB5U).
 
 ---
 
