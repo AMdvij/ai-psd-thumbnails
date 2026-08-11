@@ -5,8 +5,8 @@
 //!     HKCR\CLSID\{CLSID-A}\InprocServer32         (thumbnail; DLL path + ThreadingModel)
 //!     HKCR\CLSID\{CLSID-B}\InprocServer32         (preview; DLL path + ThreadingModel)
 //!     HKCR\CLSID\{CLSID-B}  AppID named value     (= {6d2b5079-...} prevhost surrogate)
-//!     HKCR\SystemFileAssociations\.<ext>\ShellEx\{e357fccd-...}   (thumbnail, 5 exts)
-//!     HKCR\SystemFileAssociations\.<ext>\shellex\{8895b1c6-...}   (preview, 5 exts)
+//!     HKCR\SystemFileAssociations\.<ext>\ShellEx\{e357fccd-...}   (thumbnail, 6 exts incl .pdf)
+//!     HKCR\SystemFileAssociations\.<ext>\shellex\{8895b1c6-...}   (preview, 5 exts — NOT .pdf)
 //!     HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\PreviewHandlers  (preview display name)
 //!   NEVER creates, overwrites, or deletes:
 //!     HKCR\AppID\{6d2b5079-2f0b-48dd-ab7f-97cec514d30b}  — OS-owned prevhost key.
@@ -43,8 +43,15 @@ const PREVIEW_SHELLEXT_GUID: &str = "{8895b1c6-b41f-4c1c-a562-0d564250836f}";
 /// delete the HKCR\AppID\{...} key itself.
 const PREVHOST_APPID: &str = "{6d2b5079-2f0b-48dd-ab7f-97cec514d30b}";
 
-/// File extensions to register.
-const EXTS: &[&str] = &[".ai", ".psd", ".psb", ".eps", ".svg"];
+/// Extensions to register the THUMBNAIL handler for. `.pdf` is thumbnail-only:
+/// Explorer has no built-in .pdf thumbnail provider, so this slot is free, while
+/// its preview pane is already owned by Edge — see `PREVIEW_EXTS`.
+const THUMB_EXTS: &[&str] = &[".ai", ".psd", ".psb", ".eps", ".svg", ".pdf"];
+
+/// Extensions to register the PREVIEW handler for. Deliberately excludes `.pdf`:
+/// the OS/Edge preview handler occupies the ext-level shellex slot on every Win11
+/// machine, so a `.pdf` preview registration here would be dead/shadowed. YAGNI.
+const PREVIEW_EXTS: &[&str] = &[".ai", ".psd", ".psb", ".eps", ".svg"];
 
 /// Preview handler display name shown in the Windows PreviewHandlers list.
 const PREVIEW_DISPLAY_NAME: &str = "ai-psd-thumbnails Preview";
@@ -230,7 +237,7 @@ fn register_impl() -> Result<(), HRESULT> {
     }
 
     // ── Thumbnail: HKCR\SystemFileAssociations\.<ext>\ShellEx\{thumb-guid} ───
-    for ext in EXTS {
+    for ext in THUMB_EXTS {
         let key_path = format!(
             "SystemFileAssociations\\{}\\ShellEx\\{}",
             ext, THUMB_SHELLEXT_GUID
@@ -268,7 +275,7 @@ fn register_impl() -> Result<(), HRESULT> {
     }
 
     // ── Preview: HKCR\SystemFileAssociations\.<ext>\shellex\{preview-guid} ───
-    for ext in EXTS {
+    for ext in PREVIEW_EXTS {
         let key_path = format!(
             "SystemFileAssociations\\{}\\shellex\\{}",
             ext, PREVIEW_SHELLEXT_GUID
@@ -309,7 +316,7 @@ fn unregister_impl() -> Result<(), HRESULT> {
     let clsid_b = clsid_preview_string();
 
     // ── Thumbnail: per-ext ShellEx values ────────────────────────────────────
-    for ext in EXTS {
+    for ext in THUMB_EXTS {
         let key_path = format!(
             "SystemFileAssociations\\{}\\ShellEx\\{}",
             ext, THUMB_SHELLEXT_GUID
@@ -324,7 +331,7 @@ fn unregister_impl() -> Result<(), HRESULT> {
     unsafe { delete_key_hkcr(&clsid_a_key)?; }
 
     // ── Preview: per-ext shellex values ──────────────────────────────────────
-    for ext in EXTS {
+    for ext in PREVIEW_EXTS {
         let key_path = format!(
             "SystemFileAssociations\\{}\\shellex\\{}",
             ext, PREVIEW_SHELLEXT_GUID
@@ -344,4 +351,25 @@ fn unregister_impl() -> Result<(), HRESULT> {
     unsafe { delete_value_hklm(PREVIEW_HANDLERS_KEY, &clsid_b)?; }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PREVIEW_EXTS, THUMB_EXTS};
+
+    /// `.pdf` is thumbnail-only: present in THUMB_EXTS, absent from PREVIEW_EXTS.
+    #[test]
+    fn pdf_is_thumbnail_only() {
+        assert!(THUMB_EXTS.contains(&".pdf"), "THUMB_EXTS must include .pdf");
+        assert!(!PREVIEW_EXTS.contains(&".pdf"), "PREVIEW_EXTS must NOT include .pdf");
+    }
+
+    /// Every preview ext also gets a thumbnail (preview ⊆ thumbnail); registration
+    /// symmetry relies on this so unregister never orphans a thumbnail key.
+    #[test]
+    fn preview_exts_subset_of_thumb_exts() {
+        for ext in PREVIEW_EXTS {
+            assert!(THUMB_EXTS.contains(ext), "{ext} in PREVIEW_EXTS but not THUMB_EXTS");
+        }
+    }
 }

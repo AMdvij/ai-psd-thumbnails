@@ -11,6 +11,12 @@ pub fn from_extension(ext: &str) -> Option<Ext> {
         "psb" => Some(Ext::Psb),
         "eps" => Some(Ext::Eps),
         "svg" => Some(Ext::Svg),
+        // A pure `.pdf` renders through the SAME pdfium page-1 path as a modern
+        // PDF-based `.ai` (see ai::decode → pdf::render_page1). There is no separate
+        // `Ext::Pdf` because stream-level magic (`%PDF`) cannot distinguish a `.pdf`
+        // from a modern `.ai` — the shell dispatches by bytes, so both must share
+        // one route. `.pdf` is registered thumbnail-only (no preview).
+        "pdf" => Some(Ext::Ai),
         _ => None,
     }
 }
@@ -60,6 +66,9 @@ mod tests {
         assert_eq!(from_extension("psb"), Some(Ext::Psb));
         assert_eq!(from_extension("eps"), Some(Ext::Eps));
         assert_eq!(from_extension("svg"), Some(Ext::Svg));
+        // A pure .pdf shares the modern-.ai pdfium page-1 route (no separate Ext::Pdf).
+        assert_eq!(from_extension("pdf"), Some(Ext::Ai));
+        assert_eq!(from_extension("PDF"), Some(Ext::Ai));
         assert_eq!(from_extension("txt"), None);
     }
 
