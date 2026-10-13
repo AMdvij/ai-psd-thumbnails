@@ -15,6 +15,12 @@ jobs:
       - name: Download source code
         uses: actions/checkout@v4
 
+      - name: Apply PSB 5GB patch
+        shell: pwsh
+        run: |
+          Expand-Archive -LiteralPath ".github/workflows/AI_PSD_PSB_5GB_patch.zip" -DestinationPath "." -Force
+          powershell -NoProfile -ExecutionPolicy Bypass -File ".\PSB_5GB_patch\Apply-Patch.ps1"
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
