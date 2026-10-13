@@ -1,0 +1,48 @@
+
+name: Build Windows MSI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Download source code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Install WiX
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 4.0.6
+          "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & "$env:USERPROFILE\.dotnet\tools\wix.exe" extension add --global WixToolset.Util.wixext/4.0.6
+
+      - name: Build DLL
+        run: cargo build --workspace --release
+
+      - name: Run tests
+        run: cargo test --workspace --exclude installer-ca
+
+      - name: Build MSI installer
+        shell: pwsh
+        run: ./installer/build-msi.ps1
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI-PSD-Thumbnails-Windows-MSI
+          path: installer/*.msi
+          if-no-files-found: error
